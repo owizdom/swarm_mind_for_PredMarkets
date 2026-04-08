@@ -29,11 +29,13 @@ COPY --from=builder /app/dist          ./dist
 COPY --from=builder /app/node_modules  ./node_modules
 COPY --from=builder /app/package.json  ./package.json
 COPY dashboard/index.html              ./dashboard/index.html
+COPY dashboard/architecture.png        ./dashboard/architecture.png
 COPY scripts/start-railway.sh          ./scripts/start-railway.sh
 RUN chmod +x ./scripts/start-railway.sh
 
-# Ephemeral SQLite + onboarding stub live in here.
-VOLUME ["/data"]
+# Ephemeral SQLite + onboarding stub. Railway disallows the VOLUME directive
+# (https://docs.railway.com/reference/volumes) — the start script just mkdirs /data.
+RUN mkdir -p /data
 
 # Railway sets $PORT; the script reads it. Locally defaults to 3000.
 ENV PORT=3000

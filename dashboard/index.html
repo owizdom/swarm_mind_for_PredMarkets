@@ -783,6 +783,205 @@
     .h-disagree.disagreed { color: var(--no); }
     .h-disagree.agreed    { color: var(--reveal); }
 
+    /* ── About modal ───────────────────────────────────────────────────── */
+    .about-toggle {
+      position: fixed;
+      top: 28px;
+      right: 32px;
+      font-family: 'Instrument Serif', Georgia, serif;
+      font-size: 0.95rem;
+      color: var(--text-2);
+      cursor: pointer;
+      padding: 6px 16px;
+      border: 1px solid var(--border-2);
+      border-radius: 100px;
+      background: var(--bg);
+      z-index: 100;
+      transition: all 0.2s;
+      letter-spacing: 0.01em;
+    }
+    .about-toggle:hover {
+      color: var(--text-strong);
+      border-color: var(--text-strong);
+    }
+    .modal-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.42);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+      z-index: 1000;
+      align-items: flex-start;
+      justify-content: center;
+      overflow-y: auto;
+      padding: 60px 24px;
+    }
+    .modal-backdrop.open {
+      display: flex;
+      animation: backdropIn 0.25s ease;
+    }
+    @keyframes backdropIn { from { opacity: 0; } to { opacity: 1; } }
+    .modal {
+      background: var(--bg);
+      border: 1px solid var(--border-2);
+      border-radius: 16px;
+      padding: 56px 60px 52px;
+      max-width: 760px;
+      width: 100%;
+      position: relative;
+      animation: modalIn 0.35s ease;
+    }
+    @keyframes modalIn {
+      from { opacity: 0; transform: translateY(20px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    @media (max-width: 720px) {
+      .modal { padding: 40px 28px 36px; }
+      .about-toggle { top: 18px; right: 16px; }
+    }
+    .modal-close {
+      position: absolute;
+      top: 22px;
+      right: 26px;
+      width: 32px;
+      height: 32px;
+      border: 1px solid var(--border-2);
+      border-radius: 50%;
+      background: var(--bg);
+      font-family: 'Instrument Serif', serif;
+      font-size: 1.15rem;
+      color: var(--text-3);
+      cursor: pointer;
+      transition: all 0.2s;
+      line-height: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-close:hover {
+      border-color: var(--text-strong);
+      color: var(--text-strong);
+    }
+    .modal-eyebrow {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      color: var(--text-4);
+      margin-bottom: 14px;
+    }
+    .modal-title {
+      font-size: 2.1rem;
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      color: var(--text-strong);
+      margin-bottom: 24px;
+      line-height: 1.2;
+    }
+    .modal h3 {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: var(--text-4);
+      font-weight: 500;
+      margin: 32px 0 12px;
+    }
+    .modal p {
+      font-size: 1.05rem;
+      color: var(--text);
+      line-height: 1.75;
+      margin-bottom: 18px;
+    }
+    .modal p em { font-style: italic; }
+    .modal p strong { color: var(--text-strong); font-weight: 400; }
+    .modal-image {
+      display: block;
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      margin: 28px 0;
+      background: #fafbfc;
+    }
+    .modal-cite {
+      font-size: 0.78rem;
+      color: var(--text-4);
+      font-style: italic;
+      text-align: center;
+      margin-top: -16px;
+      margin-bottom: 24px;
+    }
+    .modal-phases {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px 22px;
+      margin: 18px 0 22px;
+    }
+    @media (max-width: 600px) { .modal-phases { grid-template-columns: 1fr; } }
+    .modal-phase {
+      padding: 14px 18px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+    }
+    .modal-phase .pname {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      margin-bottom: 4px;
+    }
+    .modal-phase.explore   .pname { color: var(--explore); }
+    .modal-phase.commit    .pname { color: var(--commit); }
+    .modal-phase.reveal    .pname { color: var(--reveal); }
+    .modal-phase.synthesis .pname { color: var(--synthesis); }
+    .modal-phase .pdesc {
+      font-size: 0.92rem;
+      color: var(--text-2);
+      line-height: 1.55;
+    }
+    .modal-footer {
+      margin-top: 28px;
+      padding-top: 22px;
+      border-top: 1px solid var(--border);
+      font-size: 0.9rem;
+      color: var(--text-3);
+      text-align: center;
+      font-style: italic;
+    }
+
+    /* ── History pagination ────────────────────────────────────────────── */
+    .history-pagination {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      margin-top: 24px;
+      font-size: 0.92rem;
+    }
+    .pg-btn {
+      font-family: 'Instrument Serif', Georgia, serif;
+      font-size: 0.95rem;
+      color: var(--text-2);
+      background: transparent;
+      border: 1px solid var(--border-2);
+      border-radius: 100px;
+      padding: 6px 16px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .pg-btn:hover:not(:disabled) {
+      color: var(--text-strong);
+      border-color: var(--text-strong);
+    }
+    .pg-btn:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+    }
+    .pg-info {
+      color: var(--text-3);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.78rem;
+      letter-spacing: 0.05em;
+    }
+
     /* ── Loading dots ──────────────────────────────────────────────────── */
     .loading {
       display: inline-flex;
@@ -817,6 +1016,86 @@
   </style>
 </head>
 <body>
+
+  <button class="about-toggle" onclick="openAbout()">About</button>
+
+  <div class="modal-backdrop" id="about-modal" onclick="onBackdropClick(event)">
+    <div class="modal" onclick="event.stopPropagation()">
+      <button class="modal-close" onclick="closeAbout()" aria-label="Close">×</button>
+      <div class="modal-eyebrow">About</div>
+      <div class="modal-title">What makes Swarm Mind different</div>
+
+      <p>
+        Every prediction oracle today picks a side: relay objective data and never reason
+        (Chainlink, UMA price feeds), or use human voters and accept slow, gameable judgment
+        (Augur, Kleros, UMA optimistic).
+      </p>
+      <p>
+        Swarm Mind is the first oracle that combines <strong>autonomous AI reasoning over
+        real market data</strong> with a <strong>cryptographic proof that the reasoning was
+        independent</strong>.
+      </p>
+
+      <h3>The problem we solve</h3>
+      <p>
+        LLMs sycophant. Three AI agents in a group chat converge on whoever spoke first &mdash;
+        producing one analysis reflected three times instead of three real analyses. This is
+        the <em>Lorenz mechanism</em> (Lorenz et al., 2011): social influence destroys diversity,
+        and aggregation only beats individual judgment when inputs are independent.
+      </p>
+      <p>
+        Better prompts won't fix it. Sharma et al. (Anthropic, 2023) showed sycophancy is a
+        training-time property, resistant to instructions. The only reliable fix is
+        architectural: <em>enforce silence before commitment</em>.
+      </p>
+
+      <h3>How it works</h3>
+      <p>
+        Three named agents &mdash; <strong>Nakamoto</strong> (technical), <strong>Szabo</strong>
+        (macro), <strong>Finney</strong> (on-chain) &mdash; analyze the same Polymarket question
+        in cryptographic isolation. Each seals its prediction with a hardware-rooted Ed25519
+        signature <em>before</em> any of them can see another's output. This is computational
+        pre-registration: the sealed blob proves the prediction existed before any cross-talk
+        could occur.
+      </p>
+
+      <img src="/architecture.png" alt="Swarm Mind architecture: 3 TEE-isolated agents, commit-reveal protocol, EigenDA-anchored cryptographic proofs" class="modal-image" />
+      <div class="modal-cite">Architecture: TEE-isolated reasoning &middot; Ed25519 commit-reveal &middot; EigenDA-anchored proofs</div>
+
+      <h3>The four phases &mdash; ~90 seconds per cycle</h3>
+      <div class="modal-phases">
+        <div class="modal-phase explore">
+          <div class="pname">Explore</div>
+          <div class="pdesc">Each agent reasons in silence. No gossip. No peer outputs visible.</div>
+        </div>
+        <div class="modal-phase commit">
+          <div class="pname">Commit</div>
+          <div class="pdesc">Each agent seals its prediction with Ed25519, broadcasts <span class="mono" style="font-size:.85em">commitmentHash = sha256(sealedBlob)</span>.</div>
+        </div>
+        <div class="modal-phase reveal">
+          <div class="pname">Reveal</div>
+          <div class="pdesc">Agents gossip across the pheromone channel. Predictions become visible &mdash; but already locked.</div>
+        </div>
+        <div class="modal-phase synthesis">
+          <div class="pname">Synthesis</div>
+          <div class="pdesc">A final pass aggregates the three sealed predictions into a YES / NO / UNCERTAIN consensus answer.</div>
+        </div>
+      </div>
+
+      <h3>Verify it yourself</h3>
+      <p>
+        Open the <strong>Verify</strong> tab to inspect each cycle's commitment hashes, sealed
+        blob hashes, and independence check. Any third party can confirm each agent's commit
+        timestamp predates the reveal phase opening &mdash; that's the cryptographic proof of
+        independence. Past cycles, the agents' track record vs the live market, are in
+        <strong>History</strong>.
+      </p>
+
+      <div class="modal-footer">
+        Real Polymarket questions &middot; Real Claude reasoning &middot; Real Ed25519 signatures
+      </div>
+    </div>
+  </div>
 
   <div class="page">
 
@@ -948,6 +1227,7 @@
       <div class="history-list" id="history-list">
         <div class="empty-state"><div class="ic">·</div>No completed cycles yet. The first answer will appear here once cycle 1 reaches synthesis.</div>
       </div>
+      <div class="history-pagination" id="history-pagination" style="display:none"></div>
     </div>
 
   </div>
@@ -965,6 +1245,22 @@
     if (name === 'verify') fetchVerify();
     if (name === 'history') fetchHistory();
   }
+
+  // ── About modal ─────────────────────────────────────────────────────────
+  function openAbout() {
+    document.getElementById('about-modal').classList.add('open');
+    document.body.style.overflow = 'hidden';
+  }
+  function closeAbout() {
+    document.getElementById('about-modal').classList.remove('open');
+    document.body.style.overflow = '';
+  }
+  function onBackdropClick(event) {
+    if (event.target === event.currentTarget) closeAbout();
+  }
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeAbout();
+  });
 
   function fmtMs(ms) {
     if (ms == null || !isFinite(ms)) return '—';
@@ -1251,15 +1547,26 @@
   }
 
   // ── History ─────────────────────────────────────────────────────────────
+  const HISTORY_PAGE_SIZE = 5;
+  let historyPage = 0;
+  let historyData = null;
+
   async function fetchHistory() {
     try {
-      const data = await fetch(API + '/api/history').then(r => r.json());
-      renderHistory(data);
+      historyData = await fetch(API + '/api/history').then(r => r.json());
+      renderHistory();
     } catch (e) {}
   }
-  function renderHistory(data) {
-    const stats = data?.stats || {};
-    const entries = data?.entries || [];
+  function gotoHistoryPage(delta) {
+    if (!historyData) return;
+    const totalPages = Math.max(1, Math.ceil((historyData.entries || []).length / HISTORY_PAGE_SIZE));
+    historyPage = Math.max(0, Math.min(totalPages - 1, historyPage + delta));
+    renderHistory();
+  }
+  function renderHistory() {
+    if (!historyData) return;
+    const stats = historyData.stats || {};
+    const entries = historyData.entries || [];
 
     document.getElementById('history-stats').innerHTML = `
       <div class="stat-cell"><div class="v">${stats.total || 0}</div><div class="l">Total Cycles</div></div>
@@ -1271,10 +1578,17 @@
     const list = document.getElementById('history-list');
     if (entries.length === 0) {
       list.innerHTML = `<div class="empty-state"><div class="ic">·</div>No completed cycles yet.</div>`;
+      const pag = document.getElementById('history-pagination');
+      if (pag) pag.style.display = 'none';
       return;
     }
 
-    list.innerHTML = entries.map(h => {
+    const totalPages = Math.max(1, Math.ceil(entries.length / HISTORY_PAGE_SIZE));
+    if (historyPage >= totalPages) historyPage = totalPages - 1;
+    const startIdx = historyPage * HISTORY_PAGE_SIZE;
+    const pageEntries = entries.slice(startIdx, startIdx + HISTORY_PAGE_SIZE);
+
+    list.innerHTML = pageEntries.map(h => {
       const c = h.consensus;
       const marketYes = (h.marketImpliedYes * 100).toFixed(0);
       const disagreed = (c.answer === 'YES') !== (h.marketImpliedYes >= 0.5);
@@ -1296,6 +1610,21 @@
         </div>
       `;
     }).join('');
+
+    // Pagination controls
+    const pag = document.getElementById('history-pagination');
+    if (pag) {
+      if (totalPages > 1) {
+        pag.style.display = 'flex';
+        pag.innerHTML = `
+          <button class="pg-btn" onclick="gotoHistoryPage(-1)" ${historyPage === 0 ? 'disabled' : ''}>← Previous</button>
+          <span class="pg-info">page ${historyPage + 1} of ${totalPages} &middot; ${entries.length} cycles</span>
+          <button class="pg-btn" onclick="gotoHistoryPage(1)" ${historyPage === totalPages - 1 ? 'disabled' : ''}>Next →</button>
+        `;
+      } else {
+        pag.style.display = 'none';
+      }
+    }
   }
 
   // ── Main poll loop ──────────────────────────────────────────────────────
