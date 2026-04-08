@@ -50,8 +50,13 @@ P3=$((AGENT_BASE_PORT + 2))
 export NODE_ENV="${NODE_ENV:-production}"
 export LLM_PROVIDER="${LLM_PROVIDER:-claude-cli}"
 export ANTHROPIC_MODEL="${ANTHROPIC_MODEL:-sonnet}"
-export EXPLORE_STEPS="${EXPLORE_STEPS:-18}"
-export SYNC_INTERVAL_MS="${SYNC_INTERVAL_MS:-2000}"
+# Slower cycle cadence for long-running deploys: ~25 cycles/hour instead of ~45.
+# Each cycle still does ~4 LLM calls so this gives Max 20x's 5h window plenty of headroom.
+export EXPLORE_STEPS="${EXPLORE_STEPS:-30}"
+export SYNC_INTERVAL_MS="${SYNC_INTERVAL_MS:-2500}"
+# Per-agent token budget reset every cycle (see agent.ts:resetForNewCycle).
+# This is a safety ceiling per cycle, not cumulative.
+export TOKEN_BUDGET_PER_AGENT="${TOKEN_BUDGET_PER_AGENT:-200000}"
 
 # ── 6. Process management ─────────────────────────────────────────────────
 pids=()

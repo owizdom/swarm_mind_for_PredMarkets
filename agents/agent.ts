@@ -130,6 +130,10 @@ export class SwarmAgent {
     this.hasFormedPrediction = false;
     this.currentPrediction = null;
     this.predictionInFlight = false;
+    // Reset the per-cycle token counter so the budget doesn't accumulate forever.
+    // (Without this, after ~50 cycles the agent silently exceeds tokenBudget and
+    // stops making LLM calls — see frozen-cycle bug at cycle 263.)
+    this.state.tokensUsed = 0;
   }
 
   /** Runner reads this when posting commit registration to coordinator. */

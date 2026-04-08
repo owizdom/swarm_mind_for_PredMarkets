@@ -452,6 +452,20 @@
       font-style: italic;
     }
 
+    .agent-card.no-prediction .verdict,
+    .agent-card.no-prediction .verdict-conf,
+    .agent-card.no-prediction .reasoning,
+    .agent-card.no-prediction .agent-flags,
+    .agent-card.no-prediction .commit-hash { display: none; }
+    .agent-card.no-prediction::after {
+      content: 'Missed this cycle';
+      color: var(--text-4);
+      font-size: 0.95rem;
+      margin: auto 0;
+      text-align: center;
+      font-style: italic;
+    }
+
     .agent-card.thinking .verdict,
     .agent-card.thinking .verdict-conf,
     .agent-card.thinking .reasoning,
@@ -1392,7 +1406,7 @@
       if (!card) return;
       const p = predictions.find(x => x.agentName === name);
 
-      card.classList.remove('idle', 'thinking', 'committed', 'revealed');
+      card.classList.remove('idle', 'thinking', 'committed', 'revealed', 'no-prediction');
       const stateEl = card.querySelector('.agent-state');
       const verdict = card.querySelector('.verdict');
       const conf = card.querySelector('.verdict-conf');
@@ -1413,7 +1427,7 @@
           stateEl.className = 'agent-state thinking';
           stateEl.textContent = 'reasoning';
         } else {
-          card.classList.add('idle');
+          card.classList.add('no-prediction');
           stateEl.className = 'agent-state';
           stateEl.textContent = 'no prediction';
         }
