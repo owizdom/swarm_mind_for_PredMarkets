@@ -104,10 +104,65 @@ export interface AttestationRecord {
 
 /** LLM provider configuration */
 export interface LLMConfig {
-  provider: "eigenai" | "openai" | "anthropic";
+  provider: "eigenai" | "openai" | "anthropic" | "claude-cli";
   apiUrl: string;
   apiKey: string;
   model: string;
+}
+
+// ── Polymarket / Prediction Oracle Types ──
+
+/** A live Polymarket question the agents reason about */
+export interface PolymarketQuestion {
+  id: string;
+  conditionId: string;
+  question: string;
+  description: string;
+  category: string;
+  yesPrice: number;       // 0..1 — market's implied YES probability at fetch time
+  noPrice: number;
+  volume24hr: number;     // USD
+  liquidity: number;
+  endDate: string;        // ISO
+  slug: string;
+  url: string;            // polymarket.com link
+  fetchedAt: number;
+}
+
+/** A single agent's directional prediction for a Polymarket question */
+export interface AgentPrediction {
+  id: string;
+  agentId: string;
+  agentName: string;
+  specialization: string;
+  questionId: string;
+  questionText: string;
+  answer: "YES" | "NO" | "UNCERTAIN";
+  confidence: number;            // 0..1
+  reasoning: string;             // 2-3 sentences
+  marketImpliedYes: number;      // 0..1, what Polymarket said at form-time
+  disagreesWithMarket: boolean;
+  timestamp: number;
+  // Filled in during commit phase:
+  commitmentHash?: string;
+  attestation?: string;
+}
+
+/** Final oracle answer aggregating 3 sealed agent predictions */
+export interface OracleConsensus {
+  id: string;
+  cycleId: string;
+  questionId: string;
+  questionText: string;
+  questionUrl: string;
+  marketImpliedYes: number;
+  answer: "YES" | "NO" | "UNCERTAIN";
+  confidence: number;
+  agreementLevel: "unanimous" | "majority" | "split";
+  narrative: string;
+  perAgentPredictions: AgentPrediction[];
+  preCommitProofs: Record<string, string>; // agentId → commitmentHash
+  generatedAt: number;
 }
 
 /** Agent personality traits (each 0-1) */

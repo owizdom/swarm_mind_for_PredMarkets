@@ -1,8 +1,16 @@
 node_modules
 dist
 *.db
+*.db-journal
 *.log
+demo.log
 .env
+.env.local
 .git
+.github
+.vscode
+.idea
 workspace
 README.md
+.claude
+**/.DS_Store

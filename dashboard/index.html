@@ -3,1775 +3,1322 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Swarm Mind</title>
+  <title>Swarm Mind · Polymarket Prediction Oracle</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Press+Start+2P&display=swap');
+    * { margin: 0; padding: 0; box-sizing: border-box; }
 
     :root {
-      --bg:          #b0bcc8;
-      --surface:     #c4d0dc;
-      --surface-2:   #d4dfe8;
-      --border:      #8898aa;
-      --border-soft: #a0aab8;
-      --text:        #161c28;
-      --text-2:      #344060;
-      --text-3:      #6070a0;
-      --accent:      #1e3898;
-      --accent-dim:  rgba(30,56,152,0.12);
-      --accent-glow: rgba(30,56,152,0.28);
-      --green:       #0a6822;
-      --green-dim:   rgba(10,104,34,0.14);
-      --amber:       #985200;
-      --amber-dim:   rgba(152,82,0,0.13);
-      --pink:        #881050;
-      --red:         #aa1818;
-      --red-dim:     rgba(170,24,24,0.13);
-      --radius:      10px;
-      --radius-sm:   6px;
+      --bg:           #ffffff;
+      --text:         #444;
+      --text-strong:  #000;
+      --text-2:       #666;
+      --text-3:       #888;
+      --text-4:       #aaa;
+      --border:       #e8e8e8;
+      --border-2:     #ddd;
+      --border-3:     #ccc;
+      --hover:        #111;
+
+      --yes:          #1a5e2e;
+      --no:           #931a1c;
+      --uncertain:    #8a6315;
+
+      --explore:    #2a3f7a;
+      --commit:     #6b4818;
+      --reveal:     #1a5e2e;
+      --synthesis:  #5d2873;
+
+      --agent-nakamoto: #1c3958;
+      --agent-szabo:    #5c3a1c;
+      --agent-finney:   #1c4a40;
     }
 
-    * { margin:0; padding:0; box-sizing:border-box; }
-
-    body {
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-      background: var(--bg); color: var(--text);
-      height: 100vh; overflow: hidden; font-size: 13px;
+    html, body {
+      font-family: 'Instrument Serif', Georgia, serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.75;
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+    }
+    .mono {
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      letter-spacing: -0.01em;
     }
 
-    .mono { font-family: 'JetBrains Mono', monospace; }
-
-    .app { display:grid; grid-template-rows:48px 1fr; height:100vh; }
-
-    @media (max-width: 1200px) {
-      .app { grid-template-rows:56px 1fr; }
-      .header { padding: 0 12px; gap: 10px; }
-      .header-stats { gap: 3px; flex-wrap: wrap; }
-      .body { grid-template-columns: 150px 1fr; }
-      .live-layout { grid-template-columns: 1fr 240px; }
-      .inject-input { width: 140px; }
-      .inject-wrap { padding-left: 10px; }
+    /* ── Layout ─────────────────────────────────────────────────────────── */
+    .page {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 80px 32px 100px;
     }
 
-    @media (max-width: 900px) {
-      .body { grid-template-columns: 1fr; }
-      .tabs { display: none; }
-      .live-layout { grid-template-columns: 1fr; }
-      .live-sidebar { display: none; }
-      .agents-grid,
-      .scroll-panel,
-      .report-layout,
-      .report-main,
-      .report-aside,
-      #collective-list,
-      #attestation-grid { padding: 10px; }
-    }
-
-    /* ── Header ── */
+    /* ── Header ─────────────────────────────────────────────────────────── */
     .header {
-      background: var(--surface);
-      border-bottom: 1px solid var(--border);
-      display: flex; align-items: center; padding: 0 18px; gap: 14px;
-      z-index: 20;
+      margin-bottom: 48px;
     }
-
-    .brand {
-      display: flex; align-items: center; gap: 8px;
-      font-weight: 700; font-size: 13px; white-space: nowrap;
-      color: var(--text); letter-spacing: .3px;
+    .header h1 {
+      font-size: 2.6rem;
+      font-weight: 400;
+      color: var(--text-strong);
+      letter-spacing: -0.02em;
+      margin-bottom: 8px;
+      line-height: 1.1;
     }
-    .mc { font-family: 'Press Start 2P', monospace; }
-    .brand-mark {
-      width: 22px; height: 22px; border-radius: 6px;
-      background: linear-gradient(135deg, var(--accent), var(--pink));
-      display: flex; align-items: center; justify-content: center;
-      font-size: 10px; font-weight: 800; color: white;
-      box-shadow: 0 0 12px var(--accent-glow);
-    }
-
-    .header-stats { display: flex; gap: 4px; flex: 1; overflow: hidden; }
-
-    .stat-chip {
-      display: flex; align-items: center; gap: 5px;
-      padding: 3px 10px; border-radius: 20px;
-      background: var(--surface-2); border: 1px solid var(--border);
-      color: var(--text-2); font-size: 11.5px; white-space: nowrap;
-      transition: border-color .3s, color .3s;
-    }
-    .stat-chip .v { font-weight: 700; color: var(--text); font-family: 'JetBrains Mono', monospace; }
-    .stat-chip.active { border-color: var(--accent); color: var(--accent); }
-    .stat-chip.active .v { color: var(--accent); }
-    .stat-chip.green  { border-color: var(--green); }
-    .stat-chip.green .v { color: var(--green); }
-
-    .phase-badge {
-      display: none; padding: 3px 12px; border-radius: 20px;
-      background: linear-gradient(90deg, var(--accent), var(--pink));
-      color: white; font-size: 11px; font-weight: 600; letter-spacing: .4px;
-      animation: pulseBadge 2s ease-in-out infinite;
-    }
-    @keyframes pulseBadge {
-      0%,100% { box-shadow: 0 0 8px var(--accent-glow); }
-      50%      { box-shadow: 0 0 20px rgba(236,72,153,.5); }
-    }
-
-    .inject-wrap {
-      display: flex; align-items: center; gap: 6px;
-      border-left: 1px solid var(--border); padding-left: 14px;
-    }
-    .inject-input {
-      padding: 5px 11px; border-radius: 20px;
-      border: 1px solid var(--border); background: var(--surface-2);
-      color: var(--text); font-size: 12px; outline: none; width: 170px;
-      font-family: inherit; transition: border .2s, box-shadow .2s;
-    }
-    .inject-input::placeholder { color: var(--text-3); }
-    .inject-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
-    .inject-btn {
-      padding: 5px 14px; border-radius: 20px; border: none; cursor: pointer;
-      background: var(--accent); color: white; font-size: 12px; font-weight: 600;
-      font-family: inherit; transition: opacity .15s, box-shadow .15s;
-    }
-    .inject-btn:hover { opacity: .85; box-shadow: 0 0 12px var(--accent-glow); }
-    .inject-ok {
-      font-size: 11px; color: var(--green); font-weight: 600;
-      opacity: 0; transition: opacity .3s;
-    }
-    .inject-ok.show { opacity: 1; }
-
-    /* ── Layout ── */
-    .body { display: grid; grid-template-columns: 180px 1fr; overflow: hidden; }
-
-    /* ── Sidebar tabs ── */
-    .tabs {
-      background: var(--surface); border-right: 1px solid var(--border);
-      padding: 10px 8px; display: flex; flex-direction: column; gap: 1px;
-    }
-    .tab-group-label {
-      font-size: 9.5px; font-weight: 600; color: var(--text-3);
-      text-transform: uppercase; letter-spacing: .9px; padding: 10px 10px 4px;
-    }
-    .tab-btn {
-      display: flex; align-items: center; gap: 9px; padding: 7px 10px;
-      border-radius: var(--radius-sm); cursor: pointer; border: none;
-      background: none; color: var(--text-2); font-size: 12.5px; font-weight: 500;
-      width: 100%; text-align: left; transition: all .15s; font-family: inherit;
-    }
-    .tab-btn:hover { background: var(--surface-2); color: var(--text); }
-    .tab-btn.active { background: var(--accent-dim); color: var(--accent); border: 1px solid rgba(99,102,241,.2); }
-    .tab-icon { width: 16px; text-align: center; font-size: 14px; opacity: .7; }
-
-    /* ── Content ── */
-    .content { overflow: hidden; position: relative; }
-    .tab-panel { display: none; height: 100%; overflow: hidden; }
-    .tab-panel.active { display: flex; flex-direction: column; }
-
-    /* ── Live view ── */
-    .live-layout { display: grid; grid-template-columns: 1fr 280px; height: 100%; }
-    .canvas-wrap { position: relative; overflow: hidden; background: var(--bg); }
-    canvas { width: 100%; height: 100%; display: block; }
-    .webgl-fallback {
-      position: absolute;
-      inset: 0;
-      display: none;
+    .header .tagline {
+      font-size: 1rem;
+      color: var(--text-3);
+      display: flex;
       align-items: center;
-      justify-content: center;
-      background: rgba(255,255,255,0.9);
+      gap: 18px;
+      flex-wrap: wrap;
+    }
+    .header .tagline .sep {
+      color: var(--border-2);
+    }
+    .status-inline {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
       color: var(--text-2);
-      font-size: 11px;
+    }
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--text-3);
+      animation: pulse 2s ease-in-out infinite;
+    }
+    .status-dot.explore   { background: var(--explore); }
+    .status-dot.commit    { background: var(--commit); }
+    .status-dot.reveal    { background: var(--reveal); }
+    .status-dot.synthesis { background: var(--synthesis); }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%      { opacity: 0.4; }
+    }
+
+    /* ── Tabs ───────────────────────────────────────────────────────────── */
+    .tabs {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 56px;
+    }
+    .tab {
+      padding: 7px 18px;
+      font-family: 'Instrument Serif', Georgia, serif;
+      font-size: 1rem;
+      color: var(--text-3);
+      background: transparent;
+      border: 1px solid var(--border-2);
+      border-radius: 100px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .tab:hover {
+      color: var(--text);
+      border-color: var(--text-3);
+    }
+    .tab.active {
+      background: var(--hover);
+      color: #fff;
+      border-color: var(--hover);
+    }
+
+    .panel { display: none; }
+    .panel.active { display: block; animation: fadeIn 0.3s ease; }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ── Section Labels ─────────────────────────────────────────────────── */
+    .section-label {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: var(--text-4);
+      margin-bottom: 14px;
+      font-style: normal;
+    }
+
+    section {
+      margin-bottom: 48px;
+    }
+
+    /* ── Phase Timeline ─────────────────────────────────────────────────── */
+    .timeline {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .ph {
+      border: 1px solid var(--border-2);
+      border-radius: 10px;
+      padding: 14px 16px;
+      position: relative;
+      overflow: hidden;
+      transition: all 0.3s;
+      background: var(--bg);
+    }
+    .ph .ph-marker {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--text-4);
+      display: inline-block;
+      vertical-align: middle;
+      margin-right: 8px;
+      transition: background 0.3s;
+    }
+    .ph .ph-name {
+      display: flex;
+      align-items: center;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: var(--text-4);
+      transition: color 0.3s;
+    }
+    .ph .ph-status {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      color: var(--text-4);
+      margin-top: 6px;
+      letter-spacing: 0;
+    }
+    .ph .ph-fill {
+      position: absolute;
+      bottom: 0; left: 0;
+      height: 2px;
+      width: 0%;
+      background: var(--text-4);
+      transition: width 0.6s ease, background 0.3s;
+    }
+    .ph.done {
+      border-color: var(--border-2);
+    }
+    .ph.done .ph-marker { background: var(--text-2); }
+    .ph.done .ph-fill { width: 100%; opacity: 0.5; }
+    .ph.done .ph-name { color: var(--text-2); }
+
+    .ph.active.explore   { border-color: var(--explore); }
+    .ph.active.explore   .ph-marker, .ph.active.explore .ph-fill   { background: var(--explore); }
+    .ph.active.explore   .ph-name { color: var(--explore); }
+    .ph.active.commit    { border-color: var(--commit); }
+    .ph.active.commit    .ph-marker, .ph.active.commit .ph-fill    { background: var(--commit); }
+    .ph.active.commit    .ph-name { color: var(--commit); }
+    .ph.active.reveal    { border-color: var(--reveal); }
+    .ph.active.reveal    .ph-marker, .ph.active.reveal .ph-fill    { background: var(--reveal); }
+    .ph.active.reveal    .ph-name { color: var(--reveal); }
+    .ph.active.synthesis { border-color: var(--synthesis); }
+    .ph.active.synthesis .ph-marker, .ph.active.synthesis .ph-fill { background: var(--synthesis); }
+    .ph.active.synthesis .ph-name { color: var(--synthesis); }
+    .ph.active .ph-marker { animation: dotPulse 1.6s ease-in-out infinite; }
+    @keyframes dotPulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50%      { transform: scale(1.4); opacity: 0.5; }
+    }
+
+    /* ── Question Card ──────────────────────────────────────────────────── */
+    .question-card {
+      border: 1px solid var(--border-2);
+      border-radius: 14px;
+      padding: 32px 36px;
+      margin-bottom: 12px;
+    }
+    .question-meta {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 18px;
+      font-size: 0.78rem;
+      color: var(--text-4);
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+    }
+    .question-meta a {
+      color: var(--text-2);
+      text-decoration: none;
+      border-bottom: 1px solid var(--border-3);
+      transition: all 0.2s;
+      text-transform: none;
+      letter-spacing: 0;
+      font-size: 0.85rem;
+      margin-left: auto;
+    }
+    .question-meta a:hover { color: var(--text-strong); border-color: var(--text-strong); }
+
+    .question-text {
+      font-size: 2rem;
+      font-weight: 400;
+      line-height: 1.25;
+      letter-spacing: -0.015em;
+      color: var(--text-strong);
+      margin-bottom: 16px;
+    }
+    .question-desc {
+      font-size: 1.02rem;
+      color: var(--text);
+      line-height: 1.65;
+      margin-bottom: 22px;
+      max-height: 4.95em;
+      overflow: hidden;
+    }
+    .question-desc.expanded { max-height: none; }
+    .desc-toggle {
+      font-family: 'Instrument Serif', Georgia, serif;
+      font-size: 0.92rem;
+      color: var(--text-2);
+      background: none;
+      border: 0;
+      padding: 0;
+      cursor: pointer;
+      border-bottom: 1px solid var(--border-3);
+      transition: all 0.2s;
+    }
+    .desc-toggle:hover { color: var(--text-strong); border-color: var(--text-strong); }
+
+    .price-bar {
+      display: flex;
+      height: 6px;
+      border-radius: 100px;
+      overflow: hidden;
+      margin: 24px 0 14px;
+      background: var(--border);
+    }
+    .price-bar .yes-fill {
+      background: var(--yes);
+      transition: width 0.6s ease;
+    }
+    .price-bar .no-fill {
+      background: var(--no);
+      transition: width 0.6s ease;
+    }
+    .price-stats {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.92rem;
+      color: var(--text-2);
+      margin-bottom: 18px;
+    }
+    .price-stats .yes-pct { color: var(--yes); font-weight: 400; }
+    .price-stats .no-pct  { color: var(--no);  font-weight: 400; }
+
+    .question-stats {
+      display: flex;
+      gap: 28px;
+      flex-wrap: wrap;
+      font-size: 0.92rem;
+      color: var(--text-3);
+      padding-top: 18px;
+      border-top: 1px solid var(--border);
+    }
+    .question-stats strong {
+      color: var(--text);
+      font-weight: 400;
+    }
+
+    /* ── Agent Cards ────────────────────────────────────────────────────── */
+    .agents-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    @media (max-width: 880px) {
+      .agents-grid { grid-template-columns: 1fr; }
+    }
+
+    .agent-card {
+      border: 1px solid var(--border-2);
+      border-radius: 14px;
+      padding: 24px 22px;
+      display: flex;
+      flex-direction: column;
+      transition: border-color 0.3s;
+      min-height: 240px;
+    }
+    .agent-card.revealed { border-color: var(--text-3); }
+
+    .agent-header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      margin-bottom: 18px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--border);
+    }
+    .agent-name {
+      font-size: 1.35rem;
+      font-weight: 400;
+      color: var(--text-strong);
+      letter-spacing: -0.01em;
+    }
+    .agent-card.nakamoto .agent-name { color: var(--agent-nakamoto); }
+    .agent-card.szabo    .agent-name { color: var(--agent-szabo); }
+    .agent-card.finney   .agent-name { color: var(--agent-finney); }
+
+    .agent-spec {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: var(--text-4);
+    }
+
+    .agent-state {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: var(--text-4);
+      margin-bottom: 10px;
+    }
+    .agent-state.thinking { color: var(--explore); }
+    .agent-state.committed { color: var(--commit); }
+    .agent-state.revealed { color: var(--reveal); }
+
+    .verdict {
+      font-size: 3.2rem;
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1;
+      font-style: italic;
+      margin: 6px 0 4px;
+      transition: opacity 0.4s;
+    }
+    .verdict.YES       { color: var(--yes); }
+    .verdict.NO        { color: var(--no); }
+    .verdict.UNCERTAIN { color: var(--uncertain); }
+    .verdict-conf {
+      font-size: 0.92rem;
+      color: var(--text-3);
+      margin-bottom: 14px;
+    }
+    .verdict-conf strong { color: var(--text); font-weight: 400; }
+
+    .reasoning {
+      font-size: 1rem;
+      color: var(--text);
+      line-height: 1.65;
+      flex: 1;
+      margin-bottom: 14px;
+    }
+
+    .agent-flags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+    .flag {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: var(--no);
+      padding: 3px 10px;
+      border: 1px solid var(--no);
+      border-radius: 100px;
+    }
+
+    .commit-hash {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.72rem;
+      color: var(--text-4);
+      padding-top: 14px;
+      border-top: 1px solid var(--border);
+      cursor: pointer;
+      transition: color 0.2s;
+      letter-spacing: -0.02em;
+      word-break: break-all;
+    }
+    .commit-hash:hover { color: var(--text-2); }
+
+    /* state-specific visibility */
+    .agent-card.idle .verdict,
+    .agent-card.idle .verdict-conf,
+    .agent-card.idle .reasoning,
+    .agent-card.idle .agent-flags,
+    .agent-card.idle .commit-hash { display: none; }
+    .agent-card.idle::after {
+      content: 'Awaiting question';
+      color: var(--text-4);
+      font-size: 0.95rem;
+      margin: auto 0;
       text-align: center;
-      z-index: 4;
-      pointer-events: none;
-      padding: 16px;
+      font-style: italic;
+    }
+
+    .agent-card.thinking .verdict,
+    .agent-card.thinking .verdict-conf,
+    .agent-card.thinking .reasoning,
+    .agent-card.thinking .agent-flags,
+    .agent-card.thinking .commit-hash { display: none; }
+    .agent-card.thinking::after {
+      content: 'Reasoning…';
+      color: var(--explore);
+      font-size: 1rem;
+      margin: auto 0;
+      text-align: center;
+      font-style: italic;
+      animation: pulse 1.6s ease-in-out infinite;
+    }
+
+    .agent-card.committed .verdict,
+    .agent-card.committed .verdict-conf,
+    .agent-card.committed .reasoning,
+    .agent-card.committed .agent-flags { display: none; }
+    .agent-card.committed .commit-hash {
+      border-top: 0;
+      padding-top: 0;
+      margin: auto 0;
+      text-align: center;
+      font-size: 0.85rem;
+      color: var(--commit);
+    }
+    .agent-card.committed::before {
+      content: 'Sealed';
+      display: block;
+      text-align: center;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: var(--commit);
+      margin: auto 0 8px;
+    }
+
+    /* ── Consensus Card ─────────────────────────────────────────────────── */
+    .consensus-card {
+      border: 1px solid var(--border-2);
+      border-radius: 14px;
+      padding: 48px 44px 40px;
+      transition: border-color 0.5s;
+    }
+    .consensus-card.has-answer { border-color: var(--text-2); }
+    .consensus-card.has-answer.YES       { border-color: var(--yes); }
+    .consensus-card.has-answer.NO        { border-color: var(--no); }
+    .consensus-card.has-answer.UNCERTAIN { border-color: var(--uncertain); }
+
+    .consensus-label {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: var(--text-4);
+      margin-bottom: 24px;
+    }
+
+    .consensus-row {
+      display: flex;
+      align-items: baseline;
+      gap: 36px;
+      margin-bottom: 28px;
+      flex-wrap: wrap;
+    }
+
+    .consensus-answer {
+      font-size: 6.5rem;
+      font-weight: 400;
+      letter-spacing: -0.04em;
+      line-height: 0.95;
+      font-style: italic;
+    }
+    .consensus-card.YES        .consensus-answer { color: var(--yes); }
+    .consensus-card.NO         .consensus-answer { color: var(--no); }
+    .consensus-card.UNCERTAIN  .consensus-answer { color: var(--uncertain); }
+    .consensus-answer.placeholder { color: var(--text-4); font-size: 3.5rem; font-style: italic; }
+
+    .consensus-meta {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .consensus-conf {
+      font-size: 1.5rem;
+      color: var(--text);
+      font-weight: 400;
+    }
+    .consensus-conf-label {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: var(--text-4);
+    }
+    .consensus-agreement {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 12px;
+      border: 1px solid var(--border-2);
+      border-radius: 100px;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: var(--text-2);
+      margin-top: 6px;
+      width: fit-content;
+    }
+    .consensus-card.has-answer.YES        .consensus-agreement { color: var(--yes);       border-color: var(--yes); }
+    .consensus-card.has-answer.NO         .consensus-agreement { color: var(--no);        border-color: var(--no); }
+    .consensus-card.has-answer.UNCERTAIN  .consensus-agreement { color: var(--uncertain); border-color: var(--uncertain); }
+
+    .consensus-narrative {
+      font-size: 1.15rem;
+      line-height: 1.7;
+      color: var(--text);
+      margin-bottom: 28px;
+      max-width: 880px;
+    }
+    .consensus-verify {
+      padding-top: 22px;
+      border-top: 1px solid var(--border);
+      font-size: 0.92rem;
+      color: var(--text-3);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .checkmark {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      line-height: 16px;
+      text-align: center;
+      border-radius: 50%;
+      background: var(--reveal);
+      color: #fff;
+      font-size: 0.7rem;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 80px 20px;
+      color: var(--text-4);
+      font-style: italic;
+    }
+    .empty-state .ic {
+      font-size: 1.5rem;
+      margin-bottom: 12px;
+      opacity: 0.5;
+    }
+
+    /* ── Verify ─────────────────────────────────────────────────────────── */
+    .verify-header { margin-bottom: 36px; }
+    .verify-title {
+      font-size: 1.85rem;
+      font-weight: 400;
+      color: var(--text-strong);
+      letter-spacing: -0.015em;
+      margin-bottom: 10px;
+    }
+    .verify-sub {
+      font-size: 1.02rem;
+      color: var(--text);
+      line-height: 1.7;
+      max-width: 720px;
+    }
+    .verify-cycle-tag {
+      display: inline-block;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.78rem;
+      color: var(--text-3);
+      margin-top: 14px;
+      padding: 4px 12px;
+      border: 1px solid var(--border-2);
+      border-radius: 100px;
+    }
+
+    .verify-row {
+      padding: 22px 0;
+      border-top: 1px solid var(--border);
+      display: grid;
+      grid-template-columns: 24px 1fr;
+      gap: 18px;
+      align-items: start;
+    }
+    .verify-row:first-of-type { border-top: 0; padding-top: 0; }
+
+    .verify-name {
+      font-size: 1.25rem;
+      font-weight: 400;
+      letter-spacing: -0.01em;
+      margin-bottom: 12px;
+    }
+    .verify-row.nakamoto .verify-name { color: var(--agent-nakamoto); }
+    .verify-row.szabo    .verify-name { color: var(--agent-szabo); }
+    .verify-row.finney   .verify-name { color: var(--agent-finney); }
+
+    .verify-fields {
+      display: grid;
+      grid-template-columns: 130px 1fr;
+      gap: 6px 16px;
+      font-size: 0.85rem;
+    }
+    .verify-fields .lbl {
+      color: var(--text-4);
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      font-size: 0.7rem;
+      align-self: center;
+    }
+    .verify-fields .val {
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text);
+      word-break: break-all;
+      letter-spacing: -0.02em;
+    }
+
+    .verify-summary {
+      margin-top: 36px;
+      padding-top: 28px;
+      border-top: 1px solid var(--border-2);
+    }
+    .verify-summary-title {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: var(--text-4);
+      margin-bottom: 12px;
+    }
+    .verify-summary-statement {
+      font-size: 1.15rem;
+      line-height: 1.6;
+      color: var(--text-strong);
+    }
+    .verify-summary-statement.fail { color: var(--no); }
+
+    /* ── History ────────────────────────────────────────────────────────── */
+    .history-stats {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0;
+      margin-bottom: 48px;
+      border: 1px solid var(--border-2);
+      border-radius: 14px;
+      overflow: hidden;
+    }
+    @media (max-width: 720px) { .history-stats { grid-template-columns: repeat(2, 1fr); } }
+    .stat-cell {
+      padding: 24px 26px;
+      border-right: 1px solid var(--border);
+    }
+    .stat-cell:last-child { border-right: 0; }
+    @media (max-width: 720px) {
+      .stat-cell { border-bottom: 1px solid var(--border); }
+      .stat-cell:nth-child(2) { border-right: 0; }
+    }
+    .stat-cell .v {
+      font-size: 2.2rem;
+      font-weight: 400;
+      color: var(--text-strong);
+      letter-spacing: -0.02em;
+      line-height: 1;
+    }
+    .stat-cell .l {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: var(--text-4);
+      margin-top: 8px;
+    }
+
+    .history-list {
+      border: 1px solid var(--border-2);
+      border-radius: 14px;
+      overflow: hidden;
+    }
+    .history-row {
+      padding: 22px 28px;
+      border-top: 1px solid var(--border);
+      display: grid;
+      grid-template-columns: 80px 1fr 130px 130px;
+      gap: 22px;
+      align-items: center;
+    }
+    .history-row:first-child { border-top: 0; }
+    .h-cycle {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.78rem;
+      color: var(--text-4);
+    }
+    .h-q {
+      font-size: 1.02rem;
+      color: var(--text-strong);
+      line-height: 1.4;
+    }
+    .h-q-meta {
+      font-size: 0.85rem;
+      color: var(--text-3);
+      margin-top: 4px;
       line-height: 1.5;
     }
-
-    .density-wrap {
-      position: absolute; bottom: 14px; left: 14px; right: 14px; z-index: 8;
+    .h-answer { text-align: center; }
+    .h-ans {
+      font-size: 1.4rem;
+      font-style: italic;
+      letter-spacing: -0.01em;
     }
-    .density-row { display: flex; justify-content: space-between; font-size: 10px; color: var(--text-3); margin-bottom: 4px; font-family: 'JetBrains Mono', monospace; }
-    .density-track { height: 3px; background: var(--border); border-radius: 2px; position: relative; }
-    .density-fill { height: 100%; border-radius: 2px; transition: width .8s cubic-bezier(.4,0,.2,1), background .5s; }
-    .density-marker { position: absolute; top: -4px; width: 1px; height: 11px; background: var(--pink); border-radius: 1px; opacity: .7; }
-
-    .flash-overlay {
-      position: absolute; inset: 0; pointer-events: none; opacity: 0; z-index: 6;
-      background: radial-gradient(circle at center, rgba(99,102,241,.18), transparent 65%);
+    .h-ans.YES        { color: var(--yes); }
+    .h-ans.NO         { color: var(--no); }
+    .h-ans.UNCERTAIN  { color: var(--uncertain); }
+    .h-conf {
+      font-size: 0.78rem;
+      color: var(--text-4);
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      margin-top: 4px;
     }
-    .flash-overlay.go { animation: flashAnim 2.5s ease-out forwards; }
-    @keyframes flashAnim { 0%{opacity:1} 100%{opacity:0} }
-
-    .focus-panel {
-      position: absolute; top: 12px; left: 12px; width: 260px;
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: var(--radius); padding: 14px; z-index: 10;
-      opacity: 0; pointer-events: none; transform: translateY(6px);
-      transition: opacity .2s, transform .2s;
-      max-height: calc(100% - 80px); overflow-y: auto;
+    .h-vs { text-align: right; }
+    .h-market {
+      font-size: 0.85rem;
+      color: var(--text-3);
     }
-    .focus-panel.open { opacity: 1; pointer-events: auto; transform: translateY(0); }
-    .focus-close {
-      position: absolute; top: 10px; right: 10px; width: 20px; height: 20px;
-      border-radius: 50%; border: none; background: var(--surface-2);
-      cursor: pointer; font-size: 11px; color: var(--text-2);
-      display: flex; align-items: center; justify-content: center; font-family: inherit;
+    .h-disagree {
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      margin-top: 4px;
     }
-    .focus-close:hover { background: var(--border); color: var(--text); }
-    .focus-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-    .focus-av { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: white; flex-shrink: 0; }
-    .focus-name { font-weight: 700; font-size: 13px; }
-    .focus-sub { font-size: 10.5px; color: var(--text-3); margin-top: 1px; }
-    .focus-stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5px; margin-bottom: 10px; }
-    .focus-stat { text-align: center; background: var(--surface-2); border-radius: var(--radius-sm); padding: 6px; }
-    .focus-stat-val { font-size: 17px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
-    .focus-stat-lbl { font-size: 9px; color: var(--text-3); text-transform: uppercase; margin-top: 1px; }
-    .focus-bar-track { height: 3px; background: var(--border); border-radius: 2px; margin-bottom: 10px; overflow: hidden; }
-    .focus-bar-fill { height: 100%; border-radius: 2px; background: linear-gradient(90deg, var(--accent), var(--pink)); transition: width .5s; }
-    .focus-section-title { font-size: 9.5px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: .6px; margin-bottom: 6px; }
-    .focus-thought {
-      padding: 6px 8px; border-radius: var(--radius-sm); margin-bottom: 4px;
-      font-size: 11px; color: var(--text-2); line-height: 1.5;
-      background: var(--surface-2); border: 1px solid var(--border);
+    .h-disagree.disagreed { color: var(--no); }
+    .h-disagree.agreed    { color: var(--reveal); }
+
+    /* ── Loading dots ──────────────────────────────────────────────────── */
+    .loading {
+      display: inline-flex;
+      gap: 4px;
+      align-items: center;
+      margin-left: 8px;
     }
-    .focus-conf { font-size: 9.5px; color: var(--green); font-weight: 600; float: right; font-family: 'JetBrains Mono', monospace; }
-    .focus-tag {
-      display: inline-block; padding: 1px 7px; border-radius: 8px; margin: 2px;
-      background: var(--accent-dim); border: 1px solid rgba(99,102,241,.2);
-      color: var(--accent); font-size: 10px;
+    .loading .d {
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background: currentColor;
+      animation: ldot 1.2s ease-in-out infinite;
     }
-    .focus-action { font-size: 10px; color: var(--text-3); margin-top: 6px; font-style: italic; }
-
-    /* ── Right sidebar ── */
-    .live-sidebar {
-      border-left: 1px solid var(--border); overflow-y: auto;
-      padding: 12px; background: var(--surface); display: flex; flex-direction: column; gap: 14px;
+    .loading .d:nth-child(2) { animation-delay: 0.15s; }
+    .loading .d:nth-child(3) { animation-delay: 0.3s; }
+    @keyframes ldot {
+      0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
+      40%           { opacity: 1;   transform: scale(1.1); }
     }
-    .section-label { font-size: 10px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: .7px; margin-bottom: 7px; }
 
-    .agent-row {
-      display: flex; align-items: center; gap: 8px; padding: 6px 8px;
-      border-radius: var(--radius-sm); background: var(--surface-2);
-      margin-bottom: 3px; cursor: pointer; border: 1px solid transparent;
-      transition: border-color .2s, background .2s;
+    /* ── Responsive ────────────────────────────────────────────────────── */
+    @media (max-width: 720px) {
+      .page { padding: 48px 20px 80px; }
+      .header h1 { font-size: 2rem; }
+      .question-text { font-size: 1.55rem; }
+      .consensus-answer { font-size: 4rem; }
+      .timeline { grid-template-columns: 1fr 1fr; }
+      .history-row { grid-template-columns: 1fr; gap: 8px; }
+      .h-vs, .h-answer { text-align: left; }
     }
-    .agent-row:hover { border-color: var(--border); }
-    .agent-row.focused { background: var(--accent-dim); border-color: rgba(99,102,241,.25); }
-    .agent-row.synced { background: var(--green-dim); border-color: rgba(16,185,129,.2); }
-    .agent-av { width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 700; color: white; flex-shrink: 0; }
-    .agent-info { flex: 1; min-width: 0; }
-    .agent-name { font-weight: 600; font-size: 12px; }
-    .agent-action { font-size: 10px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .agent-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
-    .agent-disc { font-size: 11px; font-weight: 600; color: var(--text-2); font-family: 'JetBrains Mono', monospace; }
-    .agent-cr { display: flex; align-items: center; gap: 2px; font-size: 9.5px; color: var(--text-3); font-family: 'JetBrains Mono', monospace; }
-    .cr-dot { width: 5px; height: 5px; border-radius: 50%; }
-
-    .thought-card {
-      padding: 8px 10px; border-radius: var(--radius-sm);
-      border: 1px solid var(--border); background: var(--surface-2); margin-bottom: 5px;
-    }
-    .thought-meta { display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px; }
-    .thought-who { font-weight: 600; font-size: 11px; }
-    .conf-badge { font-size: 9.5px; padding: 1px 6px; border-radius: 8px; background: var(--green-dim); color: var(--green); font-weight: 600; font-family: 'JetBrains Mono', monospace; border: 1px solid rgba(16,185,129,.2); }
-    .thought-text { font-size: 11px; color: var(--text-2); line-height: 1.5; }
-
-    /* ── Agents grid tab ── */
-    .agents-grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(250px,1fr)); gap: 10px; padding: 14px; overflow-y: auto; }
-    .agent-card {
-      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-      padding: 14px; cursor: pointer; transition: border-color .2s, box-shadow .2s;
-    }
-    .agent-card:hover { border-color: rgba(99,102,241,.35); box-shadow: 0 0 20px rgba(99,102,241,.08); }
-    .agent-card-head { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; }
-    .agent-card-av { width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: white; }
-    .agent-card-name { font-weight: 700; font-size: 13px; }
-    .agent-card-spec { font-size: 10.5px; color: var(--text-3); margin-top: 1px; }
-    .stats-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5px; margin-bottom: 10px; }
-    .stat-box { background: var(--surface-2); border-radius: var(--radius-sm); padding: 6px 8px; text-align: center; border: 1px solid var(--border); }
-    .stat-box-val { font-size: 15px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
-    .stat-box-lbl { font-size: 9px; color: var(--text-3); text-transform: uppercase; letter-spacing: .4px; margin-top: 1px; }
-    .bar-wrap { margin-bottom: 8px; }
-    .bar-label { display: flex; justify-content: space-between; font-size: 10px; color: var(--text-3); margin-bottom: 3px; font-family: 'JetBrains Mono', monospace; }
-    .bar-track { height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; }
-    .bar-fill { height: 100%; border-radius: 2px; transition: width .5s; }
-    .token-fill { background: linear-gradient(90deg, var(--accent), var(--pink)); }
-    .latest-box {
-      background: var(--accent-dim); border-radius: var(--radius-sm); padding: 7px 9px;
-      font-size: 11px; color: #a5b4fc; line-height: 1.4; border: 1px solid rgba(99,102,241,.18);
-    }
-    .synced-badge { display: inline-flex; align-items: center; gap: 3px; font-size: 9.5px; padding: 1px 6px; border-radius: 8px; background: var(--green-dim); color: var(--green); font-weight: 600; border: 1px solid rgba(16,185,129,.2); }
-
-    /* ── Pheromones tab ── */
-    .scroll-panel { flex: 1; overflow-y: auto; padding: 14px; }
-    .pheromone-row {
-      display: flex; align-items: flex-start; gap: 10px; padding: 9px 10px;
-      border-radius: var(--radius-sm); border: 1px solid var(--border);
-      background: var(--surface); margin-bottom: 5px; transition: border-color .2s;
-    }
-    .pheromone-row:hover { border-color: var(--border-soft); }
-    .pheromone-row.human { background: var(--accent-dim); border-color: rgba(99,102,241,.2); }
-    .p-dot { width: 7px; height: 7px; border-radius: 50%; margin-top: 4px; flex-shrink: 0; }
-    .p-content { font-size: 11.5px; color: var(--text-2); line-height: 1.4; flex: 1; }
-    .p-meta { font-size: 10px; color: var(--text-3); margin-top: 2px; }
-    .p-strength { font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--border); color: var(--text-2); white-space: nowrap; font-family: 'JetBrains Mono', monospace; }
-
-    /* ── Report tab ── */
-    .report-layout { display: grid; grid-template-columns: 1fr 300px; height: 100%; overflow: hidden; }
-    .report-main { overflow-y: auto; padding: 18px; }
-    .report-aside { border-left: 1px solid var(--border); overflow-y: auto; padding: 14px; background: var(--surface); }
-    .report-section { margin-bottom: 20px; }
-    .report-section-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
-    .report-section-title { font-size: 14px; font-weight: 700; }
-    .report-count { font-size: 10.5px; padding: 1px 8px; border-radius: 8px; background: var(--surface-2); border: 1px solid var(--border); color: var(--text-2); font-weight: 600; font-family: 'JetBrains Mono', monospace; }
-    .insight-card {
-      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-      padding: 13px; margin-bottom: 7px; transition: border-color .2s, box-shadow .2s;
-    }
-    .insight-card:hover { border-color: rgba(99,102,241,.3); box-shadow: 0 0 18px rgba(99,102,241,.07); }
-    .insight-head { display: flex; align-items: center; gap: 7px; margin-bottom: 7px; }
-    .insight-tag { font-size: 10.5px; font-weight: 600; padding: 1px 8px; border-radius: 8px; color: white; }
-    .insight-trigger { font-size: 10px; color: var(--text-3); background: var(--surface-2); padding: 1px 7px; border-radius: 8px; border: 1px solid var(--border); }
-    .insight-conf { margin-left: auto; font-size: 10.5px; font-weight: 600; color: var(--green); font-family: 'JetBrains Mono', monospace; }
-    .insight-conclusion { font-size: 12.5px; font-weight: 500; color: var(--text); margin-bottom: 5px; line-height: 1.55; }
-    .insight-reasoning { font-size: 11.5px; color: var(--text-2); line-height: 1.6; margin-bottom: 7px; }
-    .insight-actions { display: flex; flex-wrap: wrap; gap: 3px; }
-    .action-tag { font-size: 10px; padding: 1px 7px; border-radius: 8px; background: var(--accent-dim); color: var(--accent); border: 1px solid rgba(99,102,241,.2); }
-    .repo-item { display: flex; align-items: center; gap: 9px; padding: 7px 9px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface); margin-bottom: 5px; }
-    .repo-icon { width: 26px; height: 26px; border-radius: var(--radius-sm); background: var(--surface-2); display: flex; align-items: center; justify-content: center; font-size: 11px; flex-shrink: 0; color: var(--text-2); }
-    .repo-name { font-size: 12px; font-weight: 600; }
-    .studied-tags { display: flex; flex-wrap: wrap; gap: 2px; margin-top: 2px; }
-    .studied-tag { font-size: 9.5px; padding: 0 5px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--border); color: var(--text-3); }
-    .memory-card { background: linear-gradient(135deg, rgba(99,102,241,.06), rgba(236,72,153,.06)); border: 1px solid rgba(99,102,241,.15); border-radius: var(--radius); padding: 11px 13px; margin-bottom: 7px; }
-    .memory-topic { font-size: 12.5px; font-weight: 700; color: #a5b4fc; margin-bottom: 5px; }
-    .memory-synthesis { font-size: 11px; color: #7c83b0; line-height: 1.5; }
-    .memory-meta { font-size: 10px; color: #4a5180; margin-top: 5px; font-family: 'JetBrains Mono', monospace; }
-
-    /* ── Collective tab ── */
-    .collective-card {
-      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-      padding: 18px 20px; margin-bottom: 12px;
-      transition: border-color .2s, box-shadow .2s;
-    }
-    .collective-card:hover { border-color: rgba(99,102,241,.2); box-shadow: 0 4px 24px rgba(0,0,0,.3); }
-    .collective-title { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
-    .collective-meta { font-size: 10.5px; color: var(--text-3); display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; font-family: 'JetBrains Mono', monospace; }
-
-    .report-block { margin-bottom: 14px; }
-    .report-label {
-      font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;
-      margin-bottom: 5px; color: var(--text-3);
-    }
-    .report-label.overview  { color: #818cf8; }
-    .report-label.findings  { color: #38bdf8; }
-    .report-label.opinions  { color: #c084fc; }
-    .report-label.improve   { color: var(--amber); }
-    .report-label.verdict   { color: var(--green); }
-
-    .report-prose {
-      font-size: 12.5px; color: var(--text-2); line-height: 1.7;
-      padding: 10px 12px; border-radius: var(--radius-sm);
-      background: var(--surface-2); border-left: 3px solid;
-    }
-    .report-prose.overview { border-left-color: #818cf8; }
-    .report-prose.opinions { border-left-color: #c084fc; font-style: italic; color: #b4a9d4; }
-    .report-prose.verdict  { border-left-color: var(--green); font-weight: 500; }
-
-    .report-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 4px; }
-    .report-list li {
-      font-size: 12px; color: var(--text-2); line-height: 1.6;
-      padding: 6px 10px 6px 11px; border-radius: var(--radius-sm);
-      position: relative; background: var(--surface-2);
-    }
-    .report-list li::before { content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 3px; height: 55%; border-radius: 2px; }
-    .report-list.findings li::before { background: #38bdf8; }
-    .report-list.improve  li::before { background: var(--amber); }
-
-    .collective-fallback { font-size: 11.5px; color: var(--text-2); line-height: 1.6; white-space: pre-wrap; background: var(--surface-2); padding: 10px 12px; border-radius: var(--radius-sm); }
-    .collective-pending { display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--text-3); padding: 8px 0; }
-    .pending-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: pulseDot 1.2s infinite; }
-    @keyframes pulseDot { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.7)} }
-
-    /* ── Empty states ── */
-    .empty { text-align: center; padding: 40px 16px; color: var(--text-3); font-size: 12px; }
-    .empty-icon { font-size: 22px; margin-bottom: 8px; opacity: .4; }
-
-    /* ── Scrollbar ── */
-    ::-webkit-scrollbar { width: 4px; height: 4px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-    ::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
-
-    /* ── Transitions ── */
-    .num-transition { transition: all .4s ease; }
-
-    /* ── SimCity / Minecraft colour overrides ── */
-    .header {
-      background: #1e3898;
-      border-bottom: 2px solid #0e2264;
-    }
-    .brand { color: #fff; }
-    .brand-mark { background: linear-gradient(135deg,#4a78e0,#1e3898); box-shadow: 0 0 10px rgba(74,120,224,.4); }
-    .header .stat-chip {
-      background: rgba(255,255,255,0.1);
-      border-color: rgba(255,255,255,0.18);
-      color: rgba(255,255,255,.7);
-    }
-    .header .stat-chip .v { color: #fff; }
-    .header .stat-chip.active  { border-color: #7ab8ff; color: #7ab8ff; }
-    .header .stat-chip.active .v { color: #7ab8ff; }
-    .header .stat-chip.green .v { color: #5adc7a; }
-    .header .stat-chip.amber { border-color: #fcd34d; color: #fcd34d; }
-    .header .stat-chip.amber .v { color: #fcd34d; }
-    .header .stat-chip.reveal { border-color: #5adc7a; color: #5adc7a; }
-    .header .stat-chip.reveal .v { color: #5adc7a; }
-    .header .phase-badge { background: linear-gradient(90deg,#5adc7a,#00b8d9); }
-    .inject-input { background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.22); color: #fff; }
-    .inject-input::placeholder { color: rgba(255,255,255,.38); }
-    .inject-input:focus { border-color: rgba(255,255,255,.55); box-shadow: 0 0 0 3px rgba(255,255,255,.1); }
-    .inject-ok  { color: #5adc7a; }
-    .inject-btn { background: rgba(255,255,255,.18); color: #fff; border: 1px solid rgba(255,255,255,.25); }
-    .inject-btn:hover { background: rgba(255,255,255,.28); }
-
-    .tabs { background: #98a8b8; border-right: 2px solid #7888a0; }
-    .tab-group-label { color: #2a3858; }
-    .tab-btn { color: #161c28; }
-    .tab-btn:hover { background: rgba(30,56,152,.1); color: #1e3898; }
-    .tab-btn.active { background: #1e3898; color: #fff; border: none; }
-
-    .canvas-wrap { background: #05101e; }
-
-    .live-sidebar { background: #bcc8d4; border-left: 2px solid #8898aa; }
-    .section-label { color: #1e3898; font-weight: 700; border-bottom: 2px solid #1e3898; padding-bottom: 3px; margin-bottom: 8px; }
-
-    .agent-row { background: #ccd6e2; }
-    .agent-row.focused { background: rgba(30,56,152,.12); border-color: rgba(30,56,152,.3); }
-    .agent-row.synced  { background: rgba(10,104,34,.1);  border-color: rgba(10,104,34,.2); }
-    .thought-card { background: #ccd6e2; border-color: #8898aa; }
-    .conf-badge   { background: rgba(10,104,34,.12); color: #0a6822; border-color: rgba(10,104,34,.2); }
-    .synced-badge { background: rgba(10,104,34,.12); color: #0a6822; border-color: rgba(10,104,34,.2); }
-    .pheromone-row { background: #cad4e0; border-color: #8898aa; }
-    .pheromone-row.human { background: rgba(30,56,152,.1); border-color: rgba(30,56,152,.2); }
-    .p-strength { background: #d0dae4; border-color: #8898aa; }
-
-    .agent-card { background: #c8d2de; border-color: #8898aa; }
-    .agent-card:hover { border-color: rgba(30,56,152,.4); box-shadow: 0 0 16px rgba(30,56,152,.1); }
-    .stat-box { background: #d0dae4; border-color: #8898aa; }
-    .latest-box { background: rgba(30,56,152,.1); color: #1e3898; border-color: rgba(30,56,152,.2); }
-    .focus-panel { background: #c4ceda; border: 2px solid #8898aa; }
-    .focus-thought { background: #d0dae4; border-color: #8898aa; }
-    .focus-conf { color: #0a6822; }
-    .focus-tag { background: rgba(30,56,152,.1); color: #1e3898; border-color: rgba(30,56,152,.2); }
-
-    .insight-card { background: #c8d2de; border-color: #8898aa; }
-    .insight-card:hover { border-color: rgba(30,56,152,.35); }
-    .insight-trigger { background: #d0dae4; border-color: #8898aa; }
-    .insight-conf { color: #0a6822; }
-    .action-tag { background: rgba(30,56,152,.1); color: #1e3898; border-color: rgba(30,56,152,.2); }
-    .report-count { background: #d0dae4; border-color: #8898aa; }
-    .memory-card { background: linear-gradient(135deg, rgba(30,56,152,.08), rgba(136,16,80,.06)); border-color: rgba(30,56,152,.2); }
-    .memory-topic { color: #1e3898; }
-    .memory-synthesis { color: #344060; }
-    .memory-meta { color: #6070a0; }
-    .report-prose { background: #d0dae4; }
-    .report-prose.opinions { color: #344060; font-style: italic; }
-    .report-list li { background: #d0dae4; color: var(--text-2); }
-    .report-label.overview { color: #1e3898; }
-    .report-label.findings { color: #0d6090; }
-    .report-label.opinions { color: #5a2888; }
-    .collective-card { background: #c8d2de; border-color: #8898aa; }
-    .collective-card:hover { border-color: rgba(30,56,152,.3); }
-    .collective-title { color: var(--text); }
-    .density-row { color: rgba(180,195,220,0.75); }
-    .density-track { background: rgba(255,255,255,0.12); }
-    .report-aside { background: #bcc8d4; border-left-color: #8898aa; }
-    .report-aside .section-label { color: #1e3898; border-bottom-color: #1e3898; }
-    .repo-item { background: #c8d2de; border-color: #8898aa; }
-    .repo-icon { background: #d0dae4; color: #6070a0; }
-    .studied-tag { background: #d0dae4; border-color: #8898aa; color: var(--text-3); }
-    .bar-track { background: #9aa8b8; }
-    .density-track { background: rgba(255,255,255,0.12); }
-    .focus-bar-track { background: #9aa8b8; }
   </style>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
 </head>
 <body>
-<div class="app">
 
-  <div class="header">
-    <div class="brand">
-      <div class="brand-mark">S</div>
-      <span class="mc" style="font-size:9px;letter-spacing:1px">SWARM MIND</span>
-    </div>
-    <div class="header-stats">
-      <div class="stat-chip">Step <span class="v" id="h-step">0</span></div>
-      <div class="stat-chip active">Pheromones <span class="v" id="h-phero">0</span></div>
-      <div class="stat-chip">Discoveries <span class="v" id="h-disc">0</span></div>
-      <div class="stat-chip green">Synced <span class="v" id="h-synced">0/0</span></div>
-      <div class="stat-chip">Tokens <span class="v" id="h-tokens">0</span></div>
-      <div class="stat-chip">Density <span class="v" id="h-density">0.000</span></div>
-      <div class="stat-chip" id="h-cycle-chip">Cycle <span class="v" id="h-cycle-val">explore</span></div>
-      <div class="phase-badge" id="h-phase">Phase Transition</div>
-    </div>
-    <div class="inject-wrap">
-      <input class="inject-input" id="inject-input" type="text" placeholder="Inject a signal..." />
-      <button class="inject-btn" onclick="injectTopic()">Inject</button>
-      <span class="inject-ok" id="inject-ok">Injected</span>
-    </div>
-  </div>
+  <div class="page">
 
-  <div class="body">
+    <header class="header">
+      <h1>Swarm Mind</h1>
+      <div class="tagline">
+        <span>Polymarket Prediction Oracle &mdash; three independent agents reasoning under cryptographic isolation</span>
+      </div>
+      <div class="tagline" style="margin-top:12px">
+        <span class="status-inline">
+          <span class="status-dot" id="phase-dot"></span>
+          <span>cycle <span class="mono" id="cycle-num">—</span></span>
+        </span>
+        <span class="sep">·</span>
+        <span class="status-inline"><span class="mono" id="phase-name">—</span></span>
+        <span class="sep">·</span>
+        <span class="status-inline"><span class="mono" id="phase-remaining">—</span> remaining</span>
+        <span class="sep">·</span>
+        <span class="status-inline">cost <span class="mono" id="cost-val">$0.00</span></span>
+      </div>
+    </header>
+
     <div class="tabs">
-      <div class="tab-group-label mc" style="font-size:7px">Monitor</div>
-      <button class="tab-btn active" onclick="switchTab('live')"><span class="tab-icon">◉</span> Live View</button>
-      <button class="tab-btn" onclick="switchTab('agents')"><span class="tab-icon">◈</span> Agents</button>
-      <button class="tab-btn" onclick="switchTab('pheromones')"><span class="tab-icon">◎</span> Signals</button>
-      <div class="tab-group-label mc" style="font-size:7px;margin-top:8px">Analysis</div>
-      <button class="tab-btn" onclick="switchTab('report')"><span class="tab-icon">◷</span> Report</button>
-      <button class="tab-btn" onclick="switchTab('collective')"><span class="tab-icon">◈</span> Collective</button>
-      <button class="tab-btn" onclick="switchTab('attestation')"><span class="tab-icon">◉</span> Verify</button>
+      <button class="tab active" onclick="switchTab('oracle')">Oracle</button>
+      <button class="tab" onclick="switchTab('verify')">Verify</button>
+      <button class="tab" onclick="switchTab('history')">History</button>
     </div>
 
-    <div class="content">
+    <!-- ─────────── Oracle Panel ─────────── -->
+    <div class="panel active" id="panel-oracle">
 
-      <!-- Live View -->
-      <div class="tab-panel active" id="panel-live">
-        <div class="live-layout">
-          <div class="canvas-wrap" id="canvas-wrap">
-            <div id="three-mount" style="position:absolute;inset:0"></div>
-            <div id="webgl-fallback" class="webgl-fallback">
-              WebGL is unavailable. The live 3D scene is disabled, but live metrics and feed are still updating.
-            </div>
-            <div id="bubble-layer" style="position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:5"></div>
-            <div class="focus-panel" id="focus-panel">
-              <button class="focus-close" onclick="closeFocus()">x</button>
-              <div id="focus-content"></div>
-            </div>
-            <div class="density-wrap">
-              <div class="density-row">
-                <span id="density-label" class="mono">density 0.000</span>
-                <span id="density-thresh-label" class="mono">threshold 0.35</span>
-              </div>
-              <div class="density-track">
-                <div class="density-fill" id="density-fill"></div>
-                <div class="density-marker" id="density-marker"></div>
-              </div>
-            </div>
-            <div class="flash-overlay" id="flash"></div>
-          </div>
-          <div class="live-sidebar">
-            <div>
-              <div class="section-label">Agents</div>
-              <div id="agent-list"></div>
-            </div>
-            <div>
-              <div class="section-label">Live Feed</div>
-              <div id="thought-feed"><div class="empty"><div class="empty-icon">·</div>Agents initializing...</div></div>
-            </div>
+      <section>
+        <div class="section-label">Cycle Phase</div>
+        <div class="timeline">
+          <div class="ph explore"  data-phase="explore"><div class="ph-name"><span class="ph-marker"></span>Explore</div><div class="ph-status">—</div><div class="ph-fill"></div></div>
+          <div class="ph commit"   data-phase="commit"><div class="ph-name"><span class="ph-marker"></span>Commit</div><div class="ph-status">—</div><div class="ph-fill"></div></div>
+          <div class="ph reveal"   data-phase="reveal"><div class="ph-name"><span class="ph-marker"></span>Reveal</div><div class="ph-status">—</div><div class="ph-fill"></div></div>
+          <div class="ph synthesis" data-phase="synthesis"><div class="ph-name"><span class="ph-marker"></span>Synthesis</div><div class="ph-status">—</div><div class="ph-fill"></div></div>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-label">The Question</div>
+        <div id="oracle-question">
+          <div class="empty-state">
+            <div class="ic">·</div>
+            <div>Coordinator is fetching a Polymarket question<span class="loading"><span class="d"></span><span class="d"></span><span class="d"></span></span></div>
           </div>
         </div>
-      </div>
+      </section>
 
-      <!-- Agents tab -->
-      <div class="tab-panel" id="panel-agents">
-        <div class="agents-grid" id="agents-grid"></div>
-      </div>
-
-      <!-- Pheromones tab -->
-      <div class="tab-panel" id="panel-pheromones">
-        <div class="scroll-panel">
-          <div id="pheromone-list"><div class="empty"><div class="empty-icon">·</div>No signals yet</div></div>
-        </div>
-      </div>
-
-      <!-- Report tab -->
-      <div class="tab-panel" id="panel-report">
-        <div class="report-layout">
-          <div class="report-main" id="report-main"><div class="empty" style="padding-top:60px"><div class="empty-icon">·</div>Generating report...</div></div>
-          <div class="report-aside">
-            <div class="section-label" style="margin-bottom:10px">Datasets Analyzed</div>
-            <div id="report-repos"><div class="empty"><div class="empty-icon">·</div>None yet</div></div>
-            <div class="section-label" style="margin-top:14px;margin-bottom:10px">Agent Summaries</div>
-            <div id="report-summaries"></div>
+      <section>
+        <div class="section-label">Three Independent Agents</div>
+        <div class="agents-grid" id="agents-grid">
+          <div class="agent-card nakamoto idle">
+            <div class="agent-header"><span class="agent-name">Nakamoto</span><span class="agent-spec">Technical</span></div>
+            <div class="agent-state">idle</div>
+            <div class="verdict">—</div>
+            <div class="verdict-conf"></div>
+            <div class="reasoning"></div>
+            <div class="agent-flags"></div>
+            <div class="commit-hash"></div>
+          </div>
+          <div class="agent-card szabo idle">
+            <div class="agent-header"><span class="agent-name">Szabo</span><span class="agent-spec">Macro</span></div>
+            <div class="agent-state">idle</div>
+            <div class="verdict">—</div>
+            <div class="verdict-conf"></div>
+            <div class="reasoning"></div>
+            <div class="agent-flags"></div>
+            <div class="commit-hash"></div>
+          </div>
+          <div class="agent-card finney idle">
+            <div class="agent-header"><span class="agent-name">Finney</span><span class="agent-spec">On-Chain</span></div>
+            <div class="agent-state">idle</div>
+            <div class="verdict">—</div>
+            <div class="verdict-conf"></div>
+            <div class="reasoning"></div>
+            <div class="agent-flags"></div>
+            <div class="commit-hash"></div>
           </div>
         </div>
-      </div>
+      </section>
 
-      <!-- Collective tab -->
-      <div class="tab-panel" id="panel-collective">
-        <div style="flex:1;overflow-y:auto;padding:18px">
-          <div style="max-width:820px;margin:0 auto" id="collective-list">
-            <div class="empty"><div class="empty-icon">·</div>Waiting for phase transition...</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Attestation tab -->
-      <div class="tab-panel" id="panel-attestation">
-        <div style="flex:1;overflow-y:auto;padding:18px">
-          <div style="max-width:860px;margin:0 auto">
-            <div style="margin-bottom:18px;display:flex;align-items:center;gap:12px">
-              <div style="font-size:15px;font-weight:700">Verifiable Agent Identity</div>
-              <div style="font-size:10px;padding:2px 8px;border-radius:4px;background:rgba(99,102,241,.15);color:#818cf8;border:1px solid rgba(99,102,241,.3)">Powered by EigenCompute + EigenDA</div>
-            </div>
-            <div style="font-size:11.5px;color:var(--text-3);margin-bottom:20px;line-height:1.6">
-              Each agent runs in its own isolated process with a unique Ed25519 keypair. Every pheromone is signed — you can verify any agent's output without trusting a central server. On EigenCompute, the keypair is hardware-generated inside a TEE and bound to a TDX attestation quote.
-            </div>
-
-            <!-- EigenDA status bar -->
-            <div id="eigenda-status-bar" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;gap:12px">
-              <div id="eigenda-dot" style="width:8px;height:8px;border-radius:50%;background:var(--text-3)"></div>
+      <section>
+        <div class="section-label">Oracle Consensus</div>
+        <div class="consensus-card" id="consensus-card">
+          <div class="consensus-label" id="consensus-cycle">awaiting cycle</div>
+          <div class="consensus-row">
+            <div class="consensus-answer placeholder" id="consensus-answer">—</div>
+            <div class="consensus-meta">
               <div>
-                <div style="font-size:11.5px;font-weight:600" id="eigenda-label">EigenDA — checking...</div>
-                <div style="font-size:10px;color:var(--text-3)" id="eigenda-sub"></div>
+                <div class="consensus-conf" id="consensus-conf">—</div>
+                <div class="consensus-conf-label">confidence</div>
               </div>
+              <div class="consensus-agreement" id="consensus-agreement" style="display:none">—</div>
             </div>
-
-            <!-- Per-agent attestation cards -->
-            <div id="attestation-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px;margin-bottom:22px"></div>
-
-            <!-- Commit-reveal proofs -->
-            <div style="font-size:10px;font-weight:600;color:var(--text-3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px;margin-top:22px">Commit-Reveal Proofs</div>
-            <div style="font-size:11px;color:var(--text-3);margin-bottom:10px;line-height:1.6">Each agent seals its findings to EigenDA before gossip begins. The KZG commitment hash below proves what each agent knew before seeing any peer's output.</div>
-            <div id="commitments-section"><div class="empty"><div class="empty-icon">·</div>Waiting for first commit phase...</div></div>
-
-            <!-- Live verified pheromones -->
-            <div style="font-size:10px;font-weight:600;color:var(--text-3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px;margin-top:22px">Latest Verified Signals</div>
-            <div id="verified-pheromones"></div>
+          </div>
+          <div class="consensus-narrative" id="consensus-narrative">Three independent agents are reasoning. Their predictions will be sealed cryptographically before they see each other's work.</div>
+          <div class="consensus-verify" id="consensus-verify" style="display:none">
+            <span class="checkmark">✓</span> All commitments verified · sealed before reveal
           </div>
         </div>
-      </div>
+      </section>
 
     </div>
+
+    <!-- ─────────── Verify Panel ─────────── -->
+    <div class="panel" id="panel-verify">
+      <div class="verify-header">
+        <div class="verify-title">Cryptographic Independence Proof</div>
+        <div class="verify-sub">
+          Each agent runs in its own process with a hardware-generated Ed25519 keypair. The sealed-blob hash and signature for every commitment are recorded by the coordinator <em>before</em> the reveal phase opens. No agent could have copied another's answer.
+        </div>
+      </div>
+      <div id="verify-content">
+        <div class="empty-state"><div class="ic">·</div>Loading verification data<span class="loading"><span class="d"></span><span class="d"></span><span class="d"></span></span></div>
+      </div>
+    </div>
+
+    <!-- ─────────── History Panel ─────────── -->
+    <div class="panel" id="panel-history">
+      <div class="history-stats" id="history-stats">
+        <div class="stat-cell"><div class="v">0</div><div class="l">Total Cycles</div></div>
+        <div class="stat-cell"><div class="v">0</div><div class="l">Disagreed w/ Market</div></div>
+        <div class="stat-cell"><div class="v">0</div><div class="l">Unanimous</div></div>
+        <div class="stat-cell"><div class="v">0</div><div class="l">Split Decisions</div></div>
+      </div>
+      <div class="history-list" id="history-list">
+        <div class="empty-state"><div class="ic">·</div>No completed cycles yet. The first answer will appear here once cycle 1 reaches synthesis.</div>
+      </div>
+    </div>
+
   </div>
-</div>
 
 <script>
-const API_BASE = (() => {
-  const path = window.location.pathname.replace(/\/$/, "");
-  if (!path || path === "/" || path === "/dashboard") return "";
-  if (path.endsWith("/dashboard")) return path.slice(0, -"/dashboard".length) || "";
-  return path;
-})();
-const API = window.location.origin + API_BASE;
+  const API = '';
+  const AGENT_NAMES = ['Nakamoto', 'Szabo', 'Finney'];
 
-async function safeJson(url, fallback) {
-  try {
-    const r = await fetch(url, { cache: 'no-store' });
-    if (!r.ok) return fallback;
-    const raw = await r.text();
-    return raw ? JSON.parse(raw) : fallback;
-  } catch {
-    return fallback;
+  function switchTab(name) {
+    document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    const idx = ['oracle','verify','history'].indexOf(name);
+    document.querySelectorAll('.tab')[idx]?.classList.add('active');
+    document.getElementById('panel-' + name)?.classList.add('active');
+    if (name === 'verify') fetchVerify();
+    if (name === 'history') fetchHistory();
   }
-}
 
-// ── State ──
-let agents = [], pheromones = [], thoughts = [];
-let prevTransition = false, focusedAgentId = null, phaseBadgeTimer = null;
-let agentColors = {};
-const palette = ['#6366f1','#ec4899','#10b981','#f59e0b','#3b82f6','#8b5cf6','#06b6d4','#f43f5e'];
-
-// ── Agent interpolation (smooth movement between server ticks) ──
-const agentInterp = {}; // id -> {x0,y0,x1,y1,t0,dur}
-const agentSmooth = {}; // id -> {x, y}  — computed each frame from interp
-
-// ── Live feed dedup (prevents blink) ──
-let lastFeedKey = '';
-
-// ── Three.js scene ──
-let threeScene, threeCamera, threeRenderer;
-const agentMeshes   = {};   // agentId → THREE.Group
-const connLines     = {};   // "i-j"  → THREE.Line
-const connParticles = {};   // "i-j"  → {points, phases[]}
-const pParticles    = [];   // free-floating pheromone sparks
-const MAX_PPHERO    = 500;
-let pheromoneGeo, pheromonePoints;
-let burst3D         = null;
-// Chat bubbles (CSS overlay)
-let bubbles = [];
-const BUBBLE_DUR = 5500;
-// Camera orbit
-let cameraTheta = 0.3, cameraPhi = 0.42;
-const CAM_RADIUS = 520;
-let camDragging = false, camLastX = 0, camLastY = 0;
-let camThetaBase = 0, camPhiBase = 0, autoOrbitPaused = 0;
-let threeInitDone = false;
-let threeEnabled = true;
-
-// ── Neuron scatter system ──
-let liveDensity = 0, liveCriticalThreshold = 0.55;
-let scatterResetTime = 0;          // timestamp of last scatter (0 = page load)
-const agentScatterPos = {};        // agentId → THREE.Vector3
-const sparks = [];                 // [{line, mat, life}] — arc tendrils
-
-function freshScatterPos(agentId) {
-  if (!threeEnabled) return null;
-  const angle  = Math.random() * Math.PI * 2;
-  const radius = 240 + Math.random() * 130;
-  const h      = (Math.random() - 0.5) * 220;
-  agentScatterPos[agentId] = new THREE.Vector3(
-    Math.cos(angle) * radius, h, Math.sin(angle) * radius
-  );
-  return agentScatterPos[agentId];
-}
-
-// 0 = fully scattered, 1 = fully at server positions
-function scatterBlend() {
-  const msSinceReset  = Date.now() - scatterResetTime;
-  const recoverFactor = Math.min(1, msSinceReset / 7000); // 7s recovery
-  return recoverFactor * Math.min(1, liveDensity / Math.max(0.01, liveCriticalThreshold) * 1.3);
-}
-
-function triggerScatterReset() {
-  scatterResetTime = Date.now();
-  for (const id in agentScatterPos) delete agentScatterPos[id];
-}
-
-// Spark arc between two agents (neuron synapse effect)
-function spawnSpark(fromId, toId) {
-  if (!threeEnabled) return;
-  if (!threeScene) return;
-  const ga = agentMeshes[fromId], gb = agentMeshes[toId];
-  if (!ga || !gb) return;
-  const colorHex = hexColor(getColor(fromId));
-  const mid = new THREE.Vector3(
-    (ga.position.x + gb.position.x) / 2 + (Math.random() - 0.5) * 120,
-    (ga.position.y + gb.position.y) / 2 + Math.random() * 80 - 20,
-    (ga.position.z + gb.position.z) / 2 + (Math.random() - 0.5) * 120
-  );
-  const curve = new THREE.QuadraticBezierCurve3(ga.position.clone(), mid, gb.position.clone());
-  const geo   = new THREE.BufferGeometry().setFromPoints(curve.getPoints(28));
-  const mat   = new THREE.LineBasicMaterial({ color: colorHex, transparent: true, opacity: 0.85 });
-  const line  = new THREE.Line(geo, mat);
-  threeScene.add(line);
-  sparks.push({ line, mat, life: 1.0 });
-}
-
-function updateSparks() {
-  for (const s of sparks) {
-    s.life -= 0.025;
-    s.mat.opacity = Math.max(0, s.life * 0.85);
+  function fmtMs(ms) {
+    if (ms == null || !isFinite(ms)) return '—';
+    const s = Math.max(0, Math.ceil(ms / 1000));
+    return s + 's';
   }
-  const dead = sparks.filter(s => s.life <= 0);
-  for (const s of dead) {
-    threeScene.remove(s.line);
-    s.line.geometry.dispose();
-    s.mat.dispose();
+  function escHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
-  sparks.splice(0, sparks.length, ...sparks.filter(s => s.life > 0));
-}
-
-// ── Helpers ──
-function getColor(id) {
-  if (!agentColors[id]) agentColors[id] = palette[Object.keys(agentColors).length % palette.length];
-  return agentColors[id];
-}
-function fmtTokens(n) {
-  if (n >= 1e6) return (n/1e6).toFixed(1)+'M';
-  if (n >= 1e3) return (n/1e3).toFixed(1)+'k';
-  return String(n);
-}
-function timeSince(ts) {
-  const s = Math.floor((Date.now()-ts)/1000);
-  if (s < 60) return s+'s';
-  return Math.floor(s/60)+'m';
-}
-
-// ── Tab switching ──
-function switchTab(name) {
-  const names = ['live','agents','pheromones','report','collective','attestation'];
-  document.querySelectorAll('.tab-btn').forEach((b,i) => b.classList.toggle('active', names[i] === name));
-  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-  document.getElementById('panel-'+name).classList.add('active');
-  if (name === 'live') resize();
-  if (name === 'report') fetchReport();
-}
-
-// ── Three.js resize ──
-function resize() {
-  if (!threeEnabled) return;
-  if (!threeRenderer || !threeCamera) return;
-  const mount = document.getElementById('three-mount');
-  if (!mount) return;
-  const w = mount.clientWidth, h = mount.clientHeight;
-  if (!w || !h) return;
-  threeCamera.aspect = w / h;
-  threeCamera.updateProjectionMatrix();
-  threeRenderer.setSize(w, h);
-}
-window.addEventListener('resize', () => {
-  if (document.getElementById('panel-live').classList.contains('active')) resize();
-});
-
-
-function openFocus(id) {
-  focusedAgentId = id;
-  document.getElementById('focus-panel').classList.add('open');
-  renderFocusPanel();
-}
-function closeFocus() {
-  focusedAgentId = null;
-  document.getElementById('focus-panel').classList.remove('open');
-}
-function renderFocusPanel() {
-  if (!focusedAgentId) return;
-  const a = agents.find(ag => ag.id === focusedAgentId);
-  if (!a) return;
-  const color = getColor(a.id);
-  const tokenPct = Math.min((a.tokensUsed||0)/(a.tokenBudget||1)*100,100).toFixed(0);
-
-  fetch(API+'/api/agent/'+a.id).then(r=>r.json()).then(full => {
-    const topThoughts = (full.recentThoughts||[]).filter(t=>t.conclusion).slice(0,4);
-    const repos = (full.reposStudied||[]).slice(0,6);
-    document.getElementById('focus-content').innerHTML = `
-      <div class="focus-head">
-        <div class="focus-av" style="background:${color}">${(a.name||'').slice(0,2)}</div>
-        <div style="flex:1">
-          <div class="focus-name">${a.name}</div>
-          <div class="focus-sub">${a.specialization||''} ${a.synchronized?'<span class="synced-badge">Synced</span>':''}</div>
-        </div>
-        ${a.cyclePhase ? `<div style="font-size:9px;font-family:monospace;color:${{explore:'#818cf8',commit:'#f59e0b',reveal:'#10b981'}[a.cyclePhase]||'#818cf8'};border:1px solid ${{explore:'#818cf8',commit:'#f59e0b',reveal:'#10b981'}[a.cyclePhase]||'#818cf8'}55;border-radius:6px;padding:1px 6px">${a.cyclePhase}</div>` : ''}
-      </div>
-      <div class="focus-stats">
-        <div class="focus-stat"><div class="focus-stat-val">${a.discoveries||0}</div><div class="focus-stat-lbl">Found</div></div>
-        <div class="focus-stat"><div class="focus-stat-val">${a.thoughtCount||0}</div><div class="focus-stat-lbl">Thoughts</div></div>
-        <div class="focus-stat"><div class="focus-stat-val">${fmtTokens(a.tokensUsed||0)}</div><div class="focus-stat-lbl">Tokens</div></div>
-      </div>
-      <div class="focus-bar-track"><div class="focus-bar-fill" style="width:${tokenPct}%"></div></div>
-      ${repos.length?`<div class="focus-section-title" style="margin-bottom:5px">Datasets</div>
-        ${repos.map(r=>`<span class="focus-tag">${r.replace(/:/g,' · ')}</span>`).join('')}<br style="margin-bottom:8px">`:''}
-      ${topThoughts.length?`<div class="focus-section-title" style="margin:8px 0 5px">Top Thoughts</div>
-        ${topThoughts.map(t=>`<div class="focus-thought">
-          <span class="focus-conf">${Math.round((t.confidence||0)*100)}%</span>
-          ${(t.conclusion||'').slice(0,150)}
-        </div>`).join('')}`:''}
-      <div class="focus-action">${a.currentAction||'idle'}</div>
-    `;
-  }).catch(()=>{
-    document.getElementById('focus-content').innerHTML = `<div class="focus-head">
-      <div class="focus-av" style="background:${color}">${(a.name||'').slice(0,2)}</div>
-      <div><div class="focus-name">${a.name}</div></div>
-    </div>`;
-  });
-}
-
-// ── Chat bubbles ──
-let prevThoughtIds = new Set();
-function addBubble(agentId, text) {
-  bubbles.push({ agentId, text: text.slice(0,80), born: Date.now() });
-  if (bubbles.length > 6) bubbles.shift();
-}
-
-// ── Spawn pheromone sparks near an agent (3D) ──
-function spawnPheromoneParticles(agentId) {
-  if (!threeEnabled) return;
-  const g = agentMeshes[agentId];
-  if (!g) return;
-  for (let i = 0; i < 10; i++) {
-    pParticles.push({
-      x: g.position.x + (Math.random() - 0.5) * 22,
-      y: g.position.y + (Math.random() - 0.5) * 22,
-      z: g.position.z + (Math.random() - 0.5) * 22,
-      vx: (Math.random() - 0.5) * 1.1,
-      vy: (Math.random() - 0.5) * 1.1 + 0.18,
-      vz: (Math.random() - 0.5) * 1.1,
-      life: 1.0,
-    });
+  function shortHash(h, head = 14, tail = 8) {
+    if (!h) return '—';
+    const s = String(h);
+    if (s.length <= head + tail + 1) return s;
+    return s.slice(0, head) + '…' + s.slice(-tail);
   }
-}
-
-// ── Phase burst (3D expanding wireframe sphere) ──
-function triggerBurst() {
-  if (!threeEnabled) return;
-  if (burst3D) { threeScene.remove(burst3D.mesh); burst3D = null; }
-  if (!threeScene) return;
-  const mesh = new THREE.Mesh(
-    new THREE.SphereGeometry(1, 24, 24),
-    new THREE.MeshBasicMaterial({ color: 0x6366f1, transparent: true, opacity: 0.5, wireframe: true })
-  );
-  burst3D = { mesh, r: 0 };
-  threeScene.add(mesh);
-}
-
-// ── Three.js initializer ──
-function hexColor(str) { return parseInt((str || '#6366f1').replace('#', ''), 16); }
-
-function initThree() {
-  const fallback = document.getElementById('webgl-fallback');
-  if (typeof THREE === 'undefined') {
-    threeEnabled = false;
-    if (fallback) fallback.style.display = 'flex';
-    return false;
+  function copy(text) {
+    if (!text) return;
+    navigator.clipboard?.writeText(String(text)).catch(() => {});
   }
-  const hasContext = (() => {
-    const testCanvas = document.createElement('canvas');
-    return !!(testCanvas.getContext('webgl') || testCanvas.getContext('experimental-webgl'));
-  })();
-  if (!hasContext) {
-    threeEnabled = false;
-    if (fallback) fallback.style.display = 'flex';
-    return false;
-  }
-  if (fallback) fallback.style.display = 'none';
 
-  const mount = document.getElementById('three-mount');
-  const w = mount.clientWidth || 800, h = mount.clientHeight || 600;
+  // ── Header ──────────────────────────────────────────────────────────────
+  function renderHeader(oracle, cost) {
+    const cn = document.getElementById('cycle-num');
+    const pn = document.getElementById('phase-name');
+    const pr = document.getElementById('phase-remaining');
+    const dot = document.getElementById('phase-dot');
+    const costEl = document.getElementById('cost-val');
 
-  threeScene = new THREE.Scene();
-  threeScene.fog = new THREE.FogExp2(0x020a18, 0.00042);
-
-  threeCamera = new THREE.PerspectiveCamera(55, w / h, 1, 8000);
-  updateCameraPos();
-
-  threeRenderer = new THREE.WebGLRenderer({ antialias: true });
-  threeRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  threeRenderer.setSize(w, h);
-  threeRenderer.setClearColor(0x020a18, 1);
-  mount.appendChild(threeRenderer.domElement);
-
-  // Lighting
-  threeScene.add(new THREE.AmbientLight(0x0d1f3c, 3));
-  const dir = new THREE.DirectionalLight(0x4060cc, 1.0);
-  dir.position.set(100, 200, 100);
-  threeScene.add(dir);
-
-  // Star field
-  const sBuf = new Float32Array(1600 * 3);
-  for (let i = 0; i < 1600; i++) {
-    sBuf[i*3]   = (Math.random() - 0.5) * 5000;
-    sBuf[i*3+1] = (Math.random() - 0.5) * 5000;
-    sBuf[i*3+2] = (Math.random() - 0.5) * 5000;
-  }
-  const sGeo = new THREE.BufferGeometry();
-  sGeo.setAttribute('position', new THREE.BufferAttribute(sBuf, 3));
-  threeScene.add(new THREE.Points(sGeo, new THREE.PointsMaterial({
-    color: 0xffffff, size: 1.8, transparent: true, opacity: 0.6, sizeAttenuation: true
-  })));
-
-  // Pheromone cloud (pooled geometry)
-  const pBuf = new Float32Array(MAX_PPHERO * 3);
-  pheromoneGeo = new THREE.BufferGeometry();
-  pheromoneGeo.setAttribute('position', new THREE.BufferAttribute(pBuf, 3));
-  pheromonePoints = new THREE.Points(pheromoneGeo, new THREE.PointsMaterial({
-    color: 0x9090ff, size: 4, transparent: true, opacity: 0.55, sizeAttenuation: true, depthWrite: false
-  }));
-  threeScene.add(pheromonePoints);
-
-  // Camera drag
-  mount.addEventListener('mousedown', e => {
-    if (e.button !== 0) return;
-    camDragging = true;
-    camLastX = e.clientX; camLastY = e.clientY;
-    camThetaBase = cameraTheta; camPhiBase = cameraPhi;
-    e.preventDefault();
-  });
-  mount.addEventListener('mousemove', e => {
-    if (!camDragging) return;
-    const dx = (e.clientX - camLastX) / threeRenderer.domElement.clientWidth;
-    const dy = (e.clientY - camLastY) / threeRenderer.domElement.clientHeight;
-    cameraTheta = camThetaBase - dx * Math.PI * 2.5;
-    cameraPhi   = Math.max(0.08, Math.min(1.45, camPhiBase + dy * Math.PI * 1.2));
-    updateCameraPos();
-  });
-  mount.addEventListener('mouseup', e => {
-    const dx = Math.abs(e.clientX - camLastX), dy = Math.abs(e.clientY - camLastY);
-    camDragging = false;
-    autoOrbitPaused = Date.now();
-    if (dx < 5 && dy < 5) handleThreeClick(e);
-  });
-  mount.addEventListener('mouseleave', () => { camDragging = false; });
-
-  // Touch
-  let tSX = 0, tSY = 0, tTB = 0, tPB = 0;
-  mount.addEventListener('touchstart', e => {
-    tSX = e.touches[0].clientX; tSY = e.touches[0].clientY;
-    tTB = cameraTheta; tPB = cameraPhi;
-  });
-  mount.addEventListener('touchmove', e => {
-    e.preventDefault();
-    const dx = (e.touches[0].clientX - tSX) / threeRenderer.domElement.clientWidth;
-    const dy = (e.touches[0].clientY - tSY) / threeRenderer.domElement.clientHeight;
-    cameraTheta = tTB - dx * Math.PI * 2.5;
-    cameraPhi   = Math.max(0.08, Math.min(1.45, tPB + dy * Math.PI * 1.2));
-    updateCameraPos(); autoOrbitPaused = Date.now();
-  }, { passive: false });
-  return true;
-}
-
-function updateCameraPos() {
-  if (!threeCamera) return;
-  threeCamera.position.x = CAM_RADIUS * Math.sin(cameraPhi) * Math.sin(cameraTheta);
-  threeCamera.position.y = CAM_RADIUS * Math.cos(cameraPhi);
-  threeCamera.position.z = CAM_RADIUS * Math.sin(cameraPhi) * Math.cos(cameraTheta);
-  threeCamera.lookAt(0, 0, 0);
-}
-
-// Agent 2D position → 3D world space
-function agentTo3D(a) {
-  const s = agentSmooth[a.id] || a.position;
-  return new THREE.Vector3(
-    (s.x - 500) * 0.38,
-    (a.energy || 0.5) * 70 - 35,
-    (s.y - 400) * 0.38
-  );
-}
-
-function updateAgentMeshes3D() {
-  if (!threeEnabled || !threeScene) return;
-  const now = Date.now() / 1000;
-  for (let ai = 0; ai < agents.length; ai++) {
-    const a = agents[ai];
-    const colorHex = hexColor(getColor(a.id));
-    const target = agentTo3D(a);
-
-    if (!agentMeshes[a.id]) {
-      const group = new THREE.Group();
-      group.userData.agentId = a.id;
-      // Start at scatter position
-      const sPos = agentScatterPos[a.id] || freshScatterPos(a.id);
-      group.position.copy(sPos);
-
-      // Core glowing sphere
-      const core = new THREE.Mesh(
-        new THREE.SphereGeometry(13, 32, 32),
-        new THREE.MeshPhongMaterial({ color: colorHex, emissive: colorHex, emissiveIntensity: 1.0, shininess: 100 })
-      );
-      group.add(core);
-      group.userData.core = core;
-
-      // Inner glow shell
-      group.add(new THREE.Mesh(
-        new THREE.SphereGeometry(21, 16, 16),
-        new THREE.MeshBasicMaterial({ color: colorHex, transparent: true, opacity: 0.15, side: THREE.BackSide, depthWrite: false })
-      ));
-
-      // Outer corona
-      group.add(new THREE.Mesh(
-        new THREE.SphereGeometry(42, 16, 16),
-        new THREE.MeshBasicMaterial({ color: colorHex, transparent: true, opacity: 0.05, side: THREE.BackSide, depthWrite: false })
-      ));
-
-      // Orbit ring
-      const ring = new THREE.Mesh(
-        new THREE.TorusGeometry(22, 0.9, 8, 80),
-        new THREE.MeshBasicMaterial({ color: colorHex, transparent: true, opacity: 0.35 })
-      );
-      ring.rotation.x = Math.PI / 2;
-      group.add(ring);
-      group.userData.ring = ring;
-
-      // Point light
-      const light = new THREE.PointLight(colorHex, 2.5, 380);
-      group.add(light);
-      group.userData.light = light;
-
-      group.position.copy(target);
-      threeScene.add(group);
-      agentMeshes[a.id] = group;
-    } else {
-      const g = agentMeshes[a.id];
-      // Blend: at low density agents drift toward scatter pos; at high density toward server pos
-      const sPos   = agentScatterPos[a.id] || freshScatterPos(a.id);
-      const blend  = scatterBlend();
-      const tgt    = sPos.clone().lerp(target, blend);
-      g.position.lerp(tgt, 0.028);
-
-      // Pulsing scale
-      const pulse = 1 + Math.sin(now * 2.0 + ai * 1.3) * 0.07;
-      if (g.userData.core) g.userData.core.scale.setScalar(pulse * (a.synchronized ? 1.3 : 1.0));
-
-      // Orbit ring animation
-      if (g.userData.ring) {
-        g.userData.ring.rotation.x = Math.PI / 2 + Math.sin(now * 0.4 + ai) * 0.35;
-        g.userData.ring.rotation.z = Math.sin(now * 0.28 + ai * 0.8) * 0.35;
-        g.userData.ring.material.opacity = a.synchronized ? 0.75 : 0.3;
-      }
-
-      // Light intensity
-      if (g.userData.light) {
-        g.userData.light.intensity = a.synchronized
-          ? 3.5 + Math.sin(now * 3) * 0.6
-          : 1.8 + Math.sin(now * 1.5 + ai) * 0.4;
-      }
-
-      // Focus ring overlay: add/remove a wireframe sphere
-      if (a.id === focusedAgentId && !g.userData.focusRing) {
-        const fr = new THREE.Mesh(
-          new THREE.SphereGeometry(28, 16, 16),
-          new THREE.MeshBasicMaterial({ color: hexColor(getColor(a.id)), transparent: true, opacity: 0.25, wireframe: true })
-        );
-        g.add(fr);
-        g.userData.focusRing = fr;
-      } else if (a.id !== focusedAgentId && g.userData.focusRing) {
-        g.remove(g.userData.focusRing);
-        delete g.userData.focusRing;
-      }
+    if (oracle?.cycleNumber != null) cn.textContent = oracle.cycleNumber;
+    if (oracle?.phase) {
+      pn.textContent = oracle.phase;
+      dot.className = 'status-dot ' + oracle.phase;
     }
+    if (oracle?.phaseRemainingMs != null) pr.textContent = fmtMs(oracle.phaseRemainingMs);
+    if (cost?.totalCostUsd != null) costEl.textContent = '$' + cost.totalCostUsd.toFixed(2);
   }
-}
 
-function updateConnections3D() {
-  if (!threeEnabled || !threeScene) return;
-  for (let i = 0; i < agents.length; i++) {
-    for (let j = i + 1; j < agents.length; j++) {
-      const key = `${i}-${j}`;
-      const ga = agentMeshes[agents[i].id];
-      const gb = agentMeshes[agents[j].id];
-      if (!ga || !gb) continue;
-
-      const synced = agents[i].synchronized && agents[j].synchronized;
-      const colorHex = hexColor(getColor(agents[i].id));
-
-      // Connections fade in as density builds — invisible at start like neurons searching
-      const blend        = scatterBlend();
-      const lineOpacity  = Math.max(0, blend - 0.08) * (synced ? 1.0 : 0.55);
-      const ptOpacity    = Math.max(0, blend - 0.05) * (synced ? 1.0 : 0.65);
-
-      if (!connLines[key]) {
-        // Connection line — starts invisible
-        const geo = new THREE.BufferGeometry();
-        geo.setAttribute('position', new THREE.Float32BufferAttribute([
-          ga.position.x, ga.position.y, ga.position.z,
-          gb.position.x, gb.position.y, gb.position.z
-        ], 3));
-        const mat = new THREE.LineBasicMaterial({ color: colorHex, transparent: true, opacity: 0 });
-        const line = new THREE.Line(geo, mat);
-        connLines[key] = line;
-        threeScene.add(line);
-
-        // Flowing particles
-        const N = 8;
-        const cpGeo = new THREE.BufferGeometry();
-        cpGeo.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(N * 3), 3));
-        const cpPoints = new THREE.Points(cpGeo, new THREE.PointsMaterial({
-          color: colorHex, size: 5, transparent: true, opacity: 0, sizeAttenuation: true, depthWrite: false
-        }));
-        threeScene.add(cpPoints);
-        connParticles[key] = { points: cpPoints, phases: Array.from({ length: N }, (_, k) => k / N) };
+  // ── Phase timeline ──────────────────────────────────────────────────────
+  const PHASES = ['explore', 'commit', 'reveal', 'synthesis'];
+  function renderTimeline(oracle) {
+    const cur = oracle?.phase || 'explore';
+    const curIdx = PHASES.indexOf(cur);
+    document.querySelectorAll('.ph').forEach((el, i) => {
+      el.classList.remove('done', 'active');
+      const fill = el.querySelector('.ph-fill');
+      const status = el.querySelector('.ph-status');
+      if (i < curIdx) {
+        el.classList.add('done');
+        fill.style.width = '100%';
+        status.textContent = 'done';
+      } else if (i === curIdx) {
+        el.classList.add('active');
+        const ratio = oracle?.phaseWindowMs > 0 ? Math.min(1, (oracle.phaseElapsedMs || 0) / oracle.phaseWindowMs) : 0;
+        fill.style.width = (ratio * 100).toFixed(1) + '%';
+        const remaining = oracle?.phaseRemainingMs != null ? fmtMs(oracle.phaseRemainingMs) : '—';
+        status.textContent = remaining + ' left';
       } else {
-        const pos = connLines[key].geometry.attributes.position;
-        pos.setXYZ(0, ga.position.x, ga.position.y, ga.position.z);
-        pos.setXYZ(1, gb.position.x, gb.position.y, gb.position.z);
-        pos.needsUpdate = true;
-        connLines[key].material.opacity = lineOpacity;
+        fill.style.width = '0%';
+        status.textContent = 'pending';
       }
-
-      // Animate flowing particles
-      const cp = connParticles[key];
-      if (cp) {
-        const speed = synced ? 0.007 : 0.003;
-        const cpos = cp.points.geometry.attributes.position;
-        for (let k = 0; k < cp.phases.length; k++) {
-          cp.phases[k] = (cp.phases[k] + speed) % 1;
-          const t = cp.phases[k];
-          cpos.setXYZ(k,
-            ga.position.x + (gb.position.x - ga.position.x) * t,
-            ga.position.y + (gb.position.y - ga.position.y) * t,
-            ga.position.z + (gb.position.z - ga.position.z) * t
-          );
-        }
-        cpos.needsUpdate = true;
-        cp.points.material.opacity = ptOpacity;
-        cp.points.material.size    = synced ? 6 : 4;
-      }
-    }
-  }
-}
-
-function updatePheromoneCloud() {
-  if (!threeEnabled || !pheromoneGeo || !pheromonePoints) return;
-  for (const p of pParticles) {
-    p.x += p.vx; p.y += p.vy; p.z += p.vz;
-    p.vx *= 0.98; p.vy *= 0.98; p.vz *= 0.98;
-    p.life -= 0.011;
-  }
-  while (pParticles.length > 0 && pParticles[0].life <= 0) pParticles.shift();
-
-  const posAttr = pheromoneGeo.attributes.position;
-  const alive = Math.min(pParticles.length, MAX_PPHERO);
-  for (let i = 0; i < alive; i++) {
-    const p = pParticles[pParticles.length - alive + i];
-    posAttr.setXYZ(i, p.x, p.y, p.z);
-  }
-  for (let i = alive; i < MAX_PPHERO; i++) posAttr.setXYZ(i, 0, 99999, 0);
-  posAttr.needsUpdate = true;
-  pheromonePoints.material.opacity = alive > 0 ? 0.55 : 0;
-}
-
-function updateBurst3D() {
-  if (!threeEnabled) return;
-  if (!burst3D) return;
-  burst3D.r += 5;
-  const alpha = Math.max(0, 1 - burst3D.r / 600);
-  if (alpha <= 0) {
-    threeScene.remove(burst3D.mesh);
-    burst3D.mesh.geometry.dispose();
-    burst3D.mesh.material.dispose();
-    burst3D = null;
-    return;
-  }
-  burst3D.mesh.scale.setScalar(burst3D.r);
-  burst3D.mesh.material.opacity = alpha * 0.55;
-}
-
-// CSS bubble overlay — positioned by projecting 3D agent sphere to screen
-function updateBubbles3D() {
-  if (!threeEnabled || !threeCamera || !threeRenderer) return;
-  const now = Date.now();
-  bubbles = bubbles.filter(b => now - b.born < BUBBLE_DUR);
-  const layer = document.getElementById('bubble-layer');
-  layer.innerHTML = '';
-  const w = threeRenderer.domElement.clientWidth;
-  const h = threeRenderer.domElement.clientHeight;
-  for (const b of bubbles) {
-    const g = agentMeshes[b.agentId];
-    if (!g) continue;
-    const v = g.position.clone().project(threeCamera);
-    const sx = (v.x + 1) / 2 * w;
-    const sy = (-v.y + 1) / 2 * h;
-    const age = now - b.born;
-    const alpha = age < 400 ? age / 400 : age > 4500 ? 1 - (age - 4500) / 1000 : 1;
-    const color = getColor(b.agentId);
-    const div = document.createElement('div');
-    div.style.cssText = `position:absolute;left:${sx + 22}px;top:${sy - 44}px;max-width:190px;background:rgba(8,14,28,0.92);border:1px solid ${color}55;border-left:2.5px solid ${color};border-radius:8px;padding:7px 11px;font-size:11px;line-height:1.5;color:rgba(210,220,255,0.95);opacity:${alpha};pointer-events:none;box-shadow:0 2px 14px rgba(0,0,0,0.6)`;
-    div.textContent = b.text;
-    layer.appendChild(div);
-  }
-}
-
-// 3D raycaster click → open focus panel
-const _ray = new THREE.Raycaster();
-const _mv  = new THREE.Vector2();
-function handleThreeClick(event) {
-  if (!threeEnabled) return;
-  if (!threeCamera || !threeRenderer) return;
-  const rect = threeRenderer.domElement.getBoundingClientRect();
-  _mv.x =  ((event.clientX - rect.left) / rect.width)  * 2 - 1;
-  _mv.y = -((event.clientY - rect.top)  / rect.height) * 2 + 1;
-  _ray.setFromCamera(_mv, threeCamera);
-  const cores = Object.values(agentMeshes).map(g => g.userData.core).filter(Boolean);
-  const hits  = _ray.intersectObjects(cores);
-  if (hits.length > 0) {
-    const id = hits[0].object.parent?.userData?.agentId;
-    if (id) { openFocus(id); return; }
-  }
-  closeFocus();
-}
-
-// Smooth agent position interpolation (same logic as old drawFrame)
-function updateAgentInterp() {
-  const nowMs = Date.now();
-  for (const a of agents) {
-    const ip = agentInterp[a.id];
-    if (!ip) { agentSmooth[a.id] = agentSmooth[a.id] || { x: a.position.x, y: a.position.y }; continue; }
-    const tp   = Math.min(1, (nowMs - ip.t0) / ip.dur);
-    const ease = tp < 0.5 ? 2*tp*tp : 1 - Math.pow(-2*tp+2, 2) / 2;
-    agentSmooth[a.id] = { x: ip.x0 + (ip.x1 - ip.x0) * ease, y: ip.y0 + (ip.y1 - ip.y0) * ease };
-  }
-}
-
-// ── 60fps render loop ──
-let transitioned = false;
-let animRunning = false;
-let lastKnownPheromones = new Set();
-
-function animate() {
-  requestAnimationFrame(animate);
-  if (!document.getElementById('panel-live').classList.contains('active')) return;
-
-  if (!threeInitDone) {
-    const inited = initThree();
-    threeEnabled = inited !== false;
-    threeInitDone = true;
-    if (!threeEnabled) return;
-  }
-  if (!threeEnabled) return;
-
-  // Auto-orbit (pauses 3s after manual drag)
-  if (!camDragging && Date.now() - autoOrbitPaused > 3000) {
-    cameraTheta += 0.0025;
-    updateCameraPos();
-  }
-
-  updateAgentInterp();
-  updateAgentMeshes3D();
-  updateConnections3D();
-  updateSparks();
-  updatePheromoneCloud();
-  updateBurst3D();
-  updateBubbles3D();
-  threeRenderer.render(threeScene, threeCamera);
-}
-animate();
-
-// ── Inject ──
-async function injectTopic() {
-  const input = document.getElementById('inject-input');
-  const topic = input.value.trim();
-  if (!topic) return;
-  try {
-    await fetch(API+'/api/inject', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ topic, content: `Signal injected: ${topic}` }),
     });
-    for (const a of agents) addBubble(a.id, topic);
-    input.value = '';
-    const ok = document.getElementById('inject-ok');
-    ok.classList.add('show');
-    setTimeout(() => ok.classList.remove('show'), 2000);
-  } catch {}
-}
-document.getElementById('inject-input').addEventListener('keydown', e => { if (e.key === 'Enter') injectTopic(); });
-
-// ── Collective memory renderer ──
-function renderMemory(m) {
-  const r = m.report;
-  // Show all active agents as contributors — collective memory is a swarm product
-  const contribs = agents.length > 0
-    ? agents.map(a => a.name).join(' · ')
-    : (m.contributors||[]).map(id => agents.find(a=>a.id===id)?.name || id.slice(0,6)).join(' · ');
-
-  let html = `<div class="collective-card">
-    <div class="collective-title">${m.topic}</div>
-    <div class="collective-meta">
-      <span class="mono">${timeSince(m.createdAt)} ago</span>
-      <span class="mono">${Math.round((m.confidence||0)*100)}% confidence</span>
-      ${contribs ? `<span>${contribs}</span>` : ''}
-    </div>`;
-
-  if (!r) {
-    const lines = (m.synthesis||'').split('\n\n').filter(Boolean).slice(0,4);
-    html += lines.length
-      ? `<div class="collective-fallback">${lines.map(l=>l.slice(0,280)).join('\n\n')}</div>`
-      : `<div class="collective-pending"><div class="pending-dot"></div>Generating report...</div>`;
-  } else {
-    if (r.overview) html += `<div class="report-block"><div class="report-label overview">Overview</div><div class="report-prose overview">${r.overview}</div></div>`;
-    if (r.keyFindings?.length) html += `<div class="report-block"><div class="report-label findings">Key Findings</div><ul class="report-list findings">${r.keyFindings.map(f=>`<li>${f}</li>`).join('')}</ul></div>`;
-    if (r.opinions) html += `<div class="report-block"><div class="report-label opinions">Scientific Take</div><div class="report-prose opinions">${r.opinions}</div></div>`;
-    if (r.improvements?.length) html += `<div class="report-block"><div class="report-label improve">Gaps</div><ul class="report-list improve">${r.improvements.map(i=>`<li>${i}</li>`).join('')}</ul></div>`;
-    if (r.verdict) html += `<div class="report-block"><div class="report-label verdict">Verdict</div><div class="report-prose verdict">${r.verdict}</div></div>`;
   }
 
-  // Independence proofs — show commitmentHash per agent if present
-  const proofs = m.preCommitProofs ? Object.entries(m.preCommitProofs) : [];
-  if (proofs.length > 0) {
-    html += `<div class="report-block" style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
-      <div class="report-label" style="color:#818cf8;margin-bottom:7px">Independence Proofs</div>
-      <div style="display:flex;flex-direction:column;gap:5px">
-        ${proofs.map(([agentId, hash]) => {
-          const agName = agents.find(a => a.id === agentId)?.name || agentId.slice(0, 8);
-          const isEigenDA = String(hash).startsWith('eigenda:');
-          return `<div style="display:flex;gap:8px;align-items:flex-start;background:var(--surface-2);border-radius:var(--radius-sm);padding:6px 10px;font-size:10px">
-            <div style="font-weight:700;color:var(--text-2);min-width:56px;padding-top:1px">${agName}</div>
-            <div style="font-family:monospace;color:${isEigenDA ? '#818cf8' : 'var(--text-3)'};word-break:break-all;flex:1">${String(hash).slice(0, 48)}…</div>
-            <div style="flex-shrink:0;color:${isEigenDA ? '#818cf8' : 'var(--text-3)'}">${isEigenDA ? '◈ KZG' : '◎ SHA-256'}</div>
-          </div>`;
-        }).join('')}
+  // ── Question ────────────────────────────────────────────────────────────
+  let lastQuestionId = null;
+  let descExpanded = false;
+  function renderQuestion(q) {
+    const root = document.getElementById('oracle-question');
+    if (!q) {
+      if (lastQuestionId !== null) {
+        root.innerHTML = `<div class="empty-state"><div class="ic">·</div>Coordinator is fetching a Polymarket question<span class="loading"><span class="d"></span><span class="d"></span><span class="d"></span></span></div>`;
+        lastQuestionId = null;
+      }
+      return;
+    }
+    if (q.id === lastQuestionId) return;
+    lastQuestionId = q.id;
+    descExpanded = false;
+
+    const yesPct = (q.yesPrice * 100).toFixed(0);
+    const noPct  = (q.noPrice * 100).toFixed(0);
+    const desc   = q.description || '';
+    const cat    = (q.category || 'general').toLowerCase();
+    const days = q.endDate ? Math.max(0, Math.ceil((new Date(q.endDate).getTime() - Date.now()) / 86400000)) : null;
+
+    root.innerHTML = `
+      <div class="question-card">
+        <div class="question-meta">
+          <span>Polymarket</span>
+          ${cat && cat !== 'general' ? `<span style="color: var(--text-3)">· ${escHtml(cat)}</span>` : ''}
+          ${q.url ? `<a href="${escHtml(q.url)}" target="_blank">view market →</a>` : ''}
+        </div>
+        <div class="question-text">${escHtml(q.question)}</div>
+        ${desc ? `
+          <div class="question-desc" id="qdesc">${escHtml(desc)}</div>
+          ${desc.length > 220 ? `<button class="desc-toggle" onclick="toggleDesc()">show more</button>` : ''}
+        ` : ''}
+        <div class="price-bar">
+          <div class="yes-fill" style="width:${yesPct}%"></div>
+          <div class="no-fill"  style="width:${noPct}%"></div>
+        </div>
+        <div class="price-stats">
+          <span class="yes-pct">${yesPct}% Yes</span>
+          <span class="no-pct">${noPct}% No</span>
+        </div>
+        <div class="question-stats">
+          <span><strong>$${Math.round(q.volume24hr || 0).toLocaleString()}</strong> 24h volume</span>
+          ${q.liquidity ? `<span><strong>$${Math.round(q.liquidity).toLocaleString()}</strong> liquidity</span>` : ''}
+          ${q.endDate ? `<span>resolves <strong>${q.endDate.slice(0,10)}</strong>${days != null ? ` · <strong>${days}d</strong> left` : ''}</span>` : ''}
+        </div>
       </div>
-    </div>`;
+    `;
+  }
+  function toggleDesc() {
+    descExpanded = !descExpanded;
+    const el = document.getElementById('qdesc');
+    if (el) el.classList.toggle('expanded', descExpanded);
+    const btn = document.querySelector('.desc-toggle');
+    if (btn) btn.textContent = descExpanded ? 'show less' : 'show more';
   }
 
-  return html + '</div>';
-}
+  // ── Agent cards ─────────────────────────────────────────────────────────
+  function renderAgents(oracle) {
+    const phase = oracle?.phase || 'explore';
+    const predictions = oracle?.perAgentPredictions || [];
 
-// ── Report ──
-async function fetchReport() {
-  try {
-    const r = await safeJson(API+'/api/report', null);
-    if (r) renderReport(r);
-  } catch {}
-}
+    AGENT_NAMES.forEach(name => {
+      const card = document.querySelector('.agent-card.' + name.toLowerCase());
+      if (!card) return;
+      const p = predictions.find(x => x.agentName === name);
 
-function renderReport(report) {
-  if (!report) return;
-  const insights = report.topInsights || [];
-  let html = `<div class="report-section">
-    <div class="report-section-head">
-      <span class="report-section-title">Top Insights</span>
-      <span class="report-count">${insights.length}</span>
-    </div>`;
+      card.classList.remove('idle', 'thinking', 'committed', 'revealed');
+      const stateEl = card.querySelector('.agent-state');
+      const verdict = card.querySelector('.verdict');
+      const conf = card.querySelector('.verdict-conf');
+      const reasoning = card.querySelector('.reasoning');
+      const flags = card.querySelector('.agent-flags');
+      const hash = card.querySelector('.commit-hash');
 
-  if (!insights.length) {
-    html += '<div class="empty"><div class="empty-icon">·</div>Agents forming insights...</div>';
-  } else {
-    insights.forEach(ins => {
-      const ag = agents.find(a=>a.name===ins.agentName);
-      const color = getColor(ag?.id||'');
-      html += `<div class="insight-card">
-        <div class="insight-head">
-          <span class="insight-tag" style="background:${color||'#6366f1'}">${ins.agentName}</span>
-          <span class="insight-trigger">${ins.trigger||'analysis'}</span>
-          <span class="insight-conf">${Math.round((ins.confidence||0)*100)}%</span>
-        </div>
-        <div class="insight-conclusion">${ins.conclusion||''}</div>
-        ${ins.reasoning?`<div class="insight-reasoning">${ins.reasoning.slice(0,260)}${ins.reasoning.length>260?'...':''}</div>`:''}
-        ${ins.suggestedActions?.length?`<div class="insight-actions">${ins.suggestedActions.slice(0,4).map(a=>`<span class="action-tag">${a}</span>`).join('')}</div>`:''}
-      </div>`;
-    });
-  }
+      if (!oracle?.question) {
+        card.classList.add('idle');
+        stateEl.className = 'agent-state';
+        stateEl.textContent = 'idle';
+        return;
+      }
 
-  const memories = report.collectiveMemories||[];
-  if (memories.length) {
-    html += `<div class="report-section"><div class="report-section-head"><span class="report-section-title">Collective Memories</span><span class="report-count">${memories.length}</span></div>`;
-    memories.slice(-5).reverse().forEach(m => {
-      html += `<div class="memory-card">
-        <div class="memory-topic">${m.topic}</div>
-        <div class="memory-synthesis">${(m.synthesis||'').slice(0,280)}</div>
-        <div class="memory-meta">${(m.contributors||[]).length} contributors · ${(m.confidence||0).toFixed(2)} confidence</div>
-      </div>`;
-    });
-    html += '</div>';
-  }
-  html += '</div>';
-  document.getElementById('report-main').innerHTML = html;
-
-  const repos = report.reposStudied||[];
-  document.getElementById('report-repos').innerHTML = repos.length
-    ? repos.map(r=>`<div class="repo-item">
-        <div class="repo-icon">◎</div>
-        <div><div class="repo-name">${(r.topic||r.owner+'/'+r.repo).replace(/_/g,' ')}</div>
-        <div style="font-size:10px;color:var(--text-3);margin-bottom:2px">${r.timeRange||''}</div>
-        <div class="studied-tags">${(r.studiedBy||[]).map(n=>`<span class="studied-tag">${n}</span>`).join('')}</div></div>
-      </div>`).join('')
-    : '<div class="empty"><div class="empty-icon">·</div>None yet</div>';
-
-  const summaries = report.agentSummaries||[];
-  document.getElementById('report-summaries').innerHTML = summaries.map(s=>{
-    const ag = agents.find(a=>a.name===s.name);
-    const color = getColor(ag?.id||'');
-    return `<div style="padding:9px;border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:7px;background:var(--surface)">
-      <div style="display:flex;align-items:center;gap:7px;margin-bottom:5px">
-        <div style="width:22px;height:22px;border-radius:50%;background:${color};display:flex;align-items:center;justify-content:center;color:white;font-size:9px;font-weight:700">${(s.name||'').slice(0,2)}</div>
-        <div><div style="font-weight:600;font-size:12px">${s.name}</div><div style="font-size:10px;color:var(--text-3)">${s.specialization} · ${s.thoughtCount} thoughts</div></div>
-      </div>
-      ${s.topConclusions?.length?`<div style="font-size:11px;color:var(--text-2);line-height:1.5;background:var(--surface-2);padding:5px 7px;border-radius:5px">${s.topConclusions[0].conclusion.slice(0,150)}...</div>`:''}
-    </div>`;
-  }).join('');
-}
-
-// ── Main data refresh (600ms) ──
-async function refresh() {
-  try {
-    const [
-      stateRes,
-      agentsRes,
-      pheroRes,
-      collectRes,
-      thoughtsRes
-    ] = await Promise.all([
-      safeJson(API+'/api/state', {}),
-      safeJson(API+'/api/agents', []),
-      safeJson(API+'/api/pheromones', []),
-      safeJson(API+'/api/collective', []),
-      safeJson(API+'/api/thoughts', []),
-    ]);
-
-    const safeAgents = Array.isArray(agentsRes) ? agentsRes : [];
-    const safePheros = Array.isArray(pheroRes) ? pheroRes : [];
-    const safeCollective = Array.isArray(collectRes) ? collectRes : [];
-    const safeThoughts = Array.isArray(thoughtsRes) ? thoughtsRes : [];
-
-    // Detect new pheromones — spawn 3D particle burst + arc tendrils
-    const newPheromones = safePheros.filter((p) => p?.id && !lastKnownPheromones.has(p.id));
-    if (newPheromones.length > 0) {
-      for (const p of newPheromones) {
-        spawnPheromoneParticles(p.agentId);
-        // Arc tendril toward each other agent (neuron synapse)
-        if (threeEnabled && Math.random() < 0.55) {
-          for (const a of safeAgents) {
-            if (a.id !== p.agentId) spawnSpark(p.agentId, a.id);
-          }
+      if (!p) {
+        if (phase === 'explore') {
+          card.classList.add('thinking');
+          stateEl.className = 'agent-state thinking';
+          stateEl.textContent = 'reasoning';
+        } else {
+          card.classList.add('idle');
+          stateEl.className = 'agent-state';
+          stateEl.textContent = 'no prediction';
         }
+        return;
       }
-    }
-    lastKnownPheromones = new Set(safePheros.map((p) => p.id).filter(Boolean));
 
-    // Record interpolation from current smooth position → new server position
-    for (const a of safeAgents) {
-      const cur = agentSmooth[a.id] || a.position;
-      agentInterp[a.id] = { x0: cur.x, y0: cur.y, x1: a.position.x, y1: a.position.y, t0: Date.now(), dur: 680 };
-    }
-
-    agents = safeAgents;
-    pheromones = safePheros;
-    transitioned = stateRes.phaseTransitionOccurred;
-
-    // New thoughts → bubbles
-    for (const t of safeThoughts) {
-      if (!prevThoughtIds.has(t.id) && t.conclusion) {
-        addBubble(t.agentId, t.conclusion);
-        prevThoughtIds.add(t.id);
+      if (phase === 'commit' || phase === 'explore') {
+        card.classList.add('committed');
+        stateEl.className = 'agent-state committed';
+        stateEl.textContent = 'sealed';
+        hash.innerHTML = `${shortHash(p.commitmentHash, 18, 8)}`;
+        hash.onclick = () => copy(p.commitmentHash);
+      } else {
+        card.classList.add('revealed');
+        stateEl.className = 'agent-state revealed';
+        stateEl.textContent = 'revealed';
+        verdict.className = 'verdict ' + p.answer;
+        verdict.textContent = p.answer;
+        conf.innerHTML = `<strong>${(p.confidence * 100).toFixed(0)}%</strong> confidence`;
+        reasoning.textContent = p.reasoning || '';
+        const disagreeDelta = Math.abs(p.marketImpliedYes - (p.answer === 'YES' ? 1 : p.answer === 'NO' ? 0 : 0.5));
+        if (p.disagreesWithMarket && disagreeDelta > 0.1) {
+          flags.innerHTML = `<span class="flag">disagrees with market</span>`;
+        } else {
+          flags.innerHTML = '';
+        }
+        hash.innerHTML = `${shortHash(p.commitmentHash, 18, 8)}`;
+        hash.onclick = () => copy(p.commitmentHash);
       }
-    }
-    if (prevThoughtIds.size > 300) prevThoughtIds = new Set([...prevThoughtIds].slice(-150));
-
-    // Header
-    const metrics = stateRes.metrics || {};
-    document.getElementById('h-step').textContent = stateRes.step || 0;
-    document.getElementById('h-phero').textContent = metrics.totalPheromones || 0;
-    document.getElementById('h-disc').textContent = metrics.totalDiscoveries || 0;
-    document.getElementById('h-synced').textContent = `${metrics.synchronizedCount || 0}/${safeAgents.length || 0}`;
-    document.getElementById('h-tokens').textContent = fmtTokens(stateRes.totalTokens || metrics.totalTokens || 0);
-    document.getElementById('h-density').textContent = ((stateRes.density || metrics.density || 0).toFixed ? (stateRes.density || metrics.density || 0).toFixed(3) : '0.000');
-
-    // Cycle phase chip
-    const phase = stateRes.cyclePhase || 'explore';
-    document.getElementById('h-cycle-val').textContent = phase;
-    const cycleChip = document.getElementById('h-cycle-chip');
-    cycleChip.className = `stat-chip${phase === 'commit' ? ' amber' : phase === 'reveal' ? ' reveal' : ''}`;
-
-
-    // Live density for scatter blend
-    liveDensity = stateRes.density || 0;
-    liveCriticalThreshold = stateRes.criticalThreshold || 0.55;
-
-    // Phase transition — edge detect: only fires once per new transition
-    if (stateRes.phaseTransitionOccurred && !prevTransition) {
-      // Show badge, auto-hide after 6s regardless of backend state
-      const badge = document.getElementById('h-phase');
-      badge.style.display = 'flex';
-      if (phaseBadgeTimer) clearTimeout(phaseBadgeTimer);
-      phaseBadgeTimer = setTimeout(() => { badge.style.display = 'none'; }, 6000);
-
-      document.getElementById('flash').classList.add('go');
-      setTimeout(()=>document.getElementById('flash').classList.remove('go'), 2500);
-      triggerBurst();
-      triggerScatterReset();
-
-    }
-    prevTransition = stateRes.phaseTransitionOccurred;
-
-    // Density bar
-    const density = stateRes.density || metrics.density || 0;
-    const threshold = stateRes.criticalThreshold || metrics.criticalThreshold || 0.35;
-    const fill = document.getElementById('density-fill');
-    fill.style.width = `${Math.min(density*100,100)}%`;
-    fill.style.background = density >= threshold
-      ? 'linear-gradient(90deg,#6366f1,#ec4899)'
-      : 'linear-gradient(90deg,#38bdf8,#6366f1)';
-    document.getElementById('density-label').textContent = `density ${density.toFixed(3)}`;
-    document.getElementById('density-thresh-label').textContent = `threshold ${threshold.toFixed(2)}`;
-    document.getElementById('density-marker').style.left = `${threshold*100}%`;
-
-    // Agent list
-    document.getElementById('agent-list').innerHTML = safeAgents.map(a => {
-      const color = getColor(a.id);
-      const action = (a.currentAction||'idle').length>24 ? a.currentAction.slice(0,24)+'..' : a.currentAction||'idle';
-      const agPhase = a.cyclePhase || 'explore';
-      const phaseColors = { explore: '#818cf8', commit: '#f59e0b', reveal: '#10b981' };
-      const phaseColor = phaseColors[agPhase] || '#818cf8';
-      return `<div class="agent-row ${a.synchronized?'synced':''} ${a.id===focusedAgentId?'focused':''}" onclick="openFocus('${a.id}')">
-        <div class="agent-av" style="background:${color}">${(a.name||'').slice(0,2)}</div>
-        <div class="agent-info"><div class="agent-name">${a.name}</div><div class="agent-action">${action}</div></div>
-        <div class="agent-meta">
-          <div class="agent-disc">${a.discoveries}</div>
-          <div class="agent-cr"><div class="cr-dot" style="background:${phaseColor}"></div>${agPhase}</div>
-        </div>
-      </div>`;
-    }).join('');
-
-    // Live feed — only repaint when the top-5 items actually change
-    const items = safeThoughts.length > 0 ? safeThoughts : safePheros.sort((a,b)=>b.timestamp-a.timestamp);
-    if (items.length > 0) {
-      const feedKey = items.slice(0,5).map(t => (t.id||'') + '|' + (t.timestamp||'')).join(',');
-      if (feedKey !== lastFeedKey) {
-        lastFeedKey = feedKey;
-        document.getElementById('thought-feed').innerHTML = items.slice(0,5).map(t => {
-            const ag = safeAgents.find(a=>a.id===t.agentId);
-            const color = getColor(t.agentId);
-            const text = t.conclusion || t.content || '';
-            return `<div class="thought-card">
-              <div class="thought-meta">
-              <span class="thought-who" style="color:${color}">${ag?.name||'?'}</span>
-              ${t.confidence!=null?`<span class="conf-badge">${Math.round(t.confidence*100)}%</span>`:''}
-            </div>
-            <div class="thought-text">${text.slice(0,120)}${text.length>120?'...':''}</div>
-          </div>`;
-        }).join('');
-      }
-    }
-
-    // Agents grid
-    document.getElementById('agents-grid').innerHTML = safeAgents.map(a=>{
-      const color = getColor(a.id);
-      const tokenPct = Math.min((a.tokensUsed||0)/(a.tokenBudget||1)*100,100).toFixed(0);
-      const agPhase = a.cyclePhase || 'explore';
-      const phaseColors = { explore: '#818cf8', commit: '#f59e0b', reveal: '#10b981' };
-      const phaseColor = phaseColors[agPhase] || '#818cf8';
-      const commitHash = a.commitmentHash;
-      return `<div class="agent-card" onclick="switchTab('live');setTimeout(()=>openFocus('${a.id}'),50)">
-        <div class="agent-card-head">
-          <div class="agent-card-av" style="background:${color}">${(a.name||'').slice(0,2)}</div>
-          <div><div class="agent-card-name">${a.name}</div>
-          <div class="agent-card-spec">${a.specialization||''} ${a.synchronized?'<span class="synced-badge">Synced</span>':''}</div></div>
-          <div style="margin-left:auto;display:flex;align-items:center;gap:4px;font-size:9.5px;font-family:monospace;color:${phaseColor};border:1px solid ${phaseColor}55;border-radius:8px;padding:1px 7px">${agPhase}</div>
-        </div>
-        <div class="stats-row">
-          <div class="stat-box"><div class="stat-box-val">${a.discoveries||0}</div><div class="stat-box-lbl">Found</div></div>
-          <div class="stat-box"><div class="stat-box-val">${a.thoughtCount||0}</div><div class="stat-box-lbl">Thoughts</div></div>
-          <div class="stat-box"><div class="stat-box-val">${a.absorbed||0}</div><div class="stat-box-lbl">Absorbed</div></div>
-        </div>
-        <div class="bar-wrap">
-          <div class="bar-label"><span>Token budget</span><span>${fmtTokens(a.tokensUsed||0)} / ${fmtTokens(a.tokenBudget||0)}</span></div>
-          <div class="bar-track"><div class="bar-fill token-fill" style="width:${tokenPct}%"></div></div>
-        </div>
-        ${commitHash?`<div style="background:var(--surface-2);border-radius:var(--radius-sm);padding:5px 8px;margin-top:6px;font-size:9.5px;color:var(--text-3);font-family:monospace;display:flex;gap:6px;align-items:center"><span style="color:#818cf8;font-weight:600">sealed</span><span style="word-break:break-all">${commitHash.slice(0,40)}…</span></div>`:''}
-        ${a.latestThought?`<div class="latest-box" style="margin-top:6px">${a.latestThought.slice(0,150)}${a.latestThought.length>150?'...':''}</div>`:''}
-      </div>`;
-    }).join('');
-
-    // Pheromones
-    document.getElementById('pheromone-list').innerHTML = safePheros.length > 0
-      ? safePheros.sort((a,b)=>b.timestamp-a.timestamp).slice(0,60).map(p=>{
-            const ag = safeAgents.find(a=>a.id===p.agentId);
-            const color = p.agentId==='human' ? '#f43f5e' : getColor(p.agentId);
-            return `<div class="pheromone-row ${p.agentId==='human'?'human':''}">
-              <div class="p-dot" style="background:${color}"></div>
-              <div>
-              <div class="p-content">${(p.content||'').slice(0,140)}</div>
-              <div class="p-meta">${p.agentId==='human'?'You':ag?.name||'?'} · ${p.domain||''} · ${timeSince(p.timestamp)}</div>
-            </div>
-            <div class="p-strength">${(p.strength||0).toFixed(2)}</div>
-          </div>`;
-        }).join('')
-      : '<div class="empty"><div class="empty-icon">·</div>No signals yet</div>';
-
-    // Collective
-    document.getElementById('collective-list').innerHTML = safeCollective.length > 0
-      ? safeCollective.slice(-10).reverse().map(renderMemory).join('')
-      : '<div class="empty"><div class="empty-icon">·</div>Waiting for phase transition...</div>';
-
-    if (focusedAgentId) renderFocusPanel();
-    if (document.getElementById('panel-report').classList.contains('active')) fetchReport();
-    if (document.getElementById('panel-attestation').classList.contains('active')) fetchAttestation();
-
-  } catch {}
-}
-
-// ── Attestation ──────────────────────────────────────────────────
-async function fetchAttestation() {
-  try {
-    const [proofs, state] = await Promise.all([
-      safeJson(API+'/api/attestations', []),
-      safeJson(API+'/api/state', {}),
-    ]);
-
-    // EigenDA status
-    const da = state.eigenDA || {};
-    const daEnabled = da.enabled;
-    const dot = document.getElementById('eigenda-dot');
-    const label = document.getElementById('eigenda-label');
-    const sub = document.getElementById('eigenda-sub');
-    dot.style.background = daEnabled ? 'var(--green)' : 'var(--amber)';
-    label.textContent = daEnabled ? 'EigenDA — Connected (KZG commitments active)' : 'EigenDA — Offline (SHA-256 fallback)';
-    sub.textContent = daEnabled
-      ? `${da.attestedPheromones||0} pheromones anchored to EigenDA · KZG commitments verifiable by anyone`
-      : 'Set EIGENDA_PROXY_URL and run the proxy to enable real KZG attestation';
-
-    const proofList = Array.isArray(proofs) ? proofs : [];
-    // Per-agent attestation cards
-    const grid = document.getElementById('attestation-grid');
-    if (proofList.length > 0) {
-      grid.innerHTML = proofList.filter(Boolean).map(proof => {
-        const color = getColor(proof.agent?.id || '');
-        const tee = proof.compute?.teeMode;
-        const latest = proof.latestPheromone;
-        const cr = proof.commitReveal;
-        const crPhase = cr?.cyclePhase || 'explore';
-        const phaseColors = { explore: '#818cf8', commit: '#f59e0b', reveal: '#10b981' };
-        const phaseColor = phaseColors[crPhase] || '#818cf8';
-        return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px">
-          <div style="display:flex;align-items:center;gap:9px;margin-bottom:12px">
-            <div style="width:32px;height:32px;border-radius:50%;background:${color};display:flex;align-items:center;justify-content:center;color:white;font-size:11px;font-weight:700">${(proof.agent?.name||'').slice(0,2)}</div>
-            <div style="flex:1">
-              <div style="font-weight:700;font-size:13px">${proof.agent?.name||'?'}</div>
-              <div style="font-size:10px;color:var(--text-3)">${tee ? '🔒 EigenCompute TEE' : '🔑 Ed25519 Identity'}</div>
-            </div>
-            <div style="font-size:9.5px;font-family:monospace;color:${phaseColor};border:1px solid ${phaseColor}55;border-radius:6px;padding:1px 6px">${crPhase}</div>
-          </div>
-          <div style="font-size:10px;color:var(--text-3);margin-bottom:3px">Public Key Fingerprint</div>
-          <div style="font-family:monospace;font-size:11px;word-break:break-all;margin-bottom:10px;color:var(--text)">${proof.agent?.fingerprint||'—'}</div>
-          ${cr?.commitmentHash ? `
-          <div style="font-size:10px;color:var(--text-3);margin-bottom:3px">Sealed Commitment</div>
-          <div style="font-size:9.5px;font-family:monospace;background:var(--surface-2);border-radius:4px;padding:5px 8px;margin-bottom:8px;word-break:break-all;color:${cr.committedViaEigenDA?'#818cf8':'var(--text-3)'}">
-            ${cr.commitmentHash.slice(0,52)}… <span style="color:var(--text-3)">${cr.committedViaEigenDA ? '◈ KZG' : '◎ sha256'}</span>
-          </div>` : ''}
-          ${latest ? `
-          <div style="font-size:10px;color:var(--text-3);margin-bottom:3px">Latest Signal</div>
-          <div style="font-size:10.5px;background:var(--surface-2);border-radius:4px;padding:6px 8px;margin-bottom:6px">${(latest.content||'').slice(0,100)}...</div>
-          <div style="display:flex;align-items:center;gap:6px;font-size:10px">
-            <span style="color:${latest.verified?'var(--green)':'var(--red)'}">
-              ${latest.verified ? '✓ Signature verified' : '✗ Unverified'}
-            </span>
-            ${latest.eigenda ? `<span style="color:#818cf8">· EigenDA: ${latest.eigenda.slice(0,12)}…</span>` : ''}
-          </div>` : '<div style="font-size:10px;color:var(--text-3)">No signals yet</div>'}
-          <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);font-size:10px;color:var(--text-3)">
-            Discoveries: ${proof.stats?.discoveriesTotal||0} · Synced: ${proof.stats?.synchronized?'yes':'no'}
-          </div>
-        </div>`;
-      }).join('');
-    } else {
-      grid.innerHTML = '<div class="empty"><div class="empty-icon">·</div>Agents not responding</div>';
-    }
-
-    // Commit-reveal proofs section
-    const commitsRes = await safeJson(API+'/api/commitments', []);
-    const commitSection = document.getElementById('commitments-section');
-    if (commitsRes && commitsRes.length > 0) {
-      commitSection.innerHTML = commitsRes.filter(Boolean).map(c => {
-        const agColor = getColor(agents.find(a => a.name === c.agentName)?.id || '');
-        const isEigenDA = c.committedViaEigenDA;
-        const ts = c.committedAt ? new Date(c.committedAt).toLocaleTimeString() : '—';
-        return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;margin-bottom:8px">
-          <div style="display:flex;align-items:center;gap:9px;margin-bottom:8px">
-            <div style="width:26px;height:26px;border-radius:50%;background:${agColor};display:flex;align-items:center;justify-content:center;color:white;font-size:9px;font-weight:700">${(c.agentName||'').slice(0,2)}</div>
-            <div style="flex:1">
-              <div style="font-weight:700;font-size:12px">${c.agentName||c.agentId}</div>
-              <div style="font-size:10px;color:var(--text-3)">sealed at ${ts}</div>
-            </div>
-            <div style="font-size:9.5px;color:${isEigenDA?'#818cf8':'var(--text-3)'}">
-              ${isEigenDA ? '◈ KZG (EigenDA)' : '◎ SHA-256 (local)'}
-            </div>
-          </div>
-          <div style="font-size:10px;color:var(--text-3);margin-bottom:3px">Commitment Hash</div>
-          <div style="font-size:9.5px;font-family:monospace;word-break:break-all;background:var(--surface-2);padding:5px 8px;border-radius:4px;color:${isEigenDA?'#818cf8':'var(--text)'}">${c.commitmentHash||'—'}</div>
-          ${c.sealedBlobHash ? `<div style="font-size:9px;color:var(--text-3);margin-top:5px;font-family:monospace">blob: ${c.sealedBlobHash.slice(0,32)}…</div>` : ''}
-        </div>`;
-      }).join('');
-    } else {
-      commitSection.innerHTML = '<div class="empty"><div class="empty-icon">·</div>Waiting for first commit phase…</div>';
-    }
-
-    // Verified pheromones
-    const pheroRes = await safeJson(API+'/api/pheromones', []);
-    const verifiedList = document.getElementById('verified-pheromones');
-    const withSig = pheroRes.filter(p => p.attestation?.startsWith('ed25519:'));
-    if (withSig.length > 0) {
-      verifiedList.innerHTML = withSig.slice(0,8).map(p => {
-        const color = getColor(p.agentId);
-        const ag = agents.find(a=>a.id===p.agentId);
-        return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:6px;display:flex;gap:10px;align-items:flex-start">
-          <div style="width:6px;height:6px;border-radius:50%;background:${color};margin-top:5px;flex-shrink:0"></div>
-          <div style="flex:1;min-width:0">
-            <div style="font-size:11px;margin-bottom:2px">${(p.content||'').slice(0,120)}</div>
-            <div style="font-size:10px;color:var(--text-3)">${ag?.name||p.agentId.slice(0,8)} · ${p.domain}</div>
-          </div>
-          <div style="text-align:right;flex-shrink:0">
-            <div style="font-size:10px;color:var(--green);white-space:nowrap">✓ signed</div>
-            ${p.eigendaCommitment ? `<div style="font-size:9px;color:#818cf8;font-family:monospace">${p.eigendaCommitment.slice(0,10)}…</div>` : ''}
-          </div>
-        </div>`;
-      }).join('');
-    } else {
-      verifiedList.innerHTML = '<div class="empty"><div class="empty-icon">·</div>No signed pheromones yet</div>';
-    }
-  } catch(e) {
-    console.error('attestation fetch error', e);
+    });
   }
-}
 
-setInterval(refresh, 600);
-refresh();
+  // ── Consensus ───────────────────────────────────────────────────────────
+  function renderConsensus(oracle) {
+    const card = document.getElementById('consensus-card');
+    const c = oracle?.consensus;
+    const ans = document.getElementById('consensus-answer');
+    const conf = document.getElementById('consensus-conf');
+    const agreement = document.getElementById('consensus-agreement');
+    const narrative = document.getElementById('consensus-narrative');
+    const verify = document.getElementById('consensus-verify');
+    const cycleSpan = document.getElementById('consensus-cycle');
+
+    cycleSpan.textContent = oracle?.cycleNumber ? `cycle ${oracle.cycleNumber}` : 'awaiting cycle';
+
+    card.classList.remove('has-answer', 'YES', 'NO', 'UNCERTAIN');
+
+    if (!c) {
+      ans.className = 'consensus-answer placeholder';
+      ans.textContent = oracle?.synthesisInFlight || oracle?.phase === 'synthesis' ? 'Synthesizing…' : 'Awaiting synthesis';
+      conf.textContent = '—';
+      agreement.style.display = 'none';
+      verify.style.display = 'none';
+      narrative.textContent = oracle?.phase === 'explore'
+        ? 'The three agents are reasoning independently. Their predictions will be sealed cryptographically before reveal.'
+        : (oracle?.phase === 'commit' ? 'Agents are sealing their predictions with hardware-backed Ed25519 signatures.' :
+          (oracle?.phase === 'reveal' ? 'Agents are revealing their sealed predictions to peers.' :
+            (oracle?.phase === 'synthesis' ? 'Aggregating sealed predictions into a single oracle answer.' :
+              'Three independent agents will reason on this question shortly.')));
+      return;
+    }
+
+    card.classList.add('has-answer', c.answer);
+    ans.className = 'consensus-answer';
+    ans.textContent = c.answer;
+    conf.textContent = (c.confidence * 100).toFixed(0) + '%';
+    agreement.style.display = 'inline-flex';
+    agreement.textContent = c.agreementLevel || 'majority';
+    narrative.textContent = c.narrative || '';
+    verify.style.display = 'flex';
+  }
+
+  // ── Verify ──────────────────────────────────────────────────────────────
+  async function fetchVerify() {
+    try {
+      const [evidence, oracle] = await Promise.all([
+        fetch(API + '/api/evidence').then(r => r.json()),
+        fetch(API + '/api/oracle').then(r => r.json()),
+      ]);
+      renderVerify(evidence, oracle);
+    } catch (e) {}
+  }
+  function renderVerify(evidence, oracle) {
+    const root = document.getElementById('verify-content');
+    const commits = (evidence?.commitments || []);
+    const independence = (evidence?.independenceChecks || []);
+    if (commits.length === 0) {
+      root.innerHTML = `<div class="verify-cycle-tag">cycle ${evidence?.cycleNumber || '—'}</div><div class="empty-state" style="padding-top:60px"><div class="ic">·</div>No commitments yet for this cycle. Verification proofs appear once agents commit.</div>`;
+      return;
+    }
+
+    const sortedCommits = [...commits].sort((a, b) => (a.submittedAt || 0) - (b.submittedAt || 0));
+    const earliestCommit = sortedCommits[0]?.submittedAt;
+    const latestCommit   = sortedCommits[sortedCommits.length - 1]?.submittedAt;
+    const allBefore = independence.every(i => i.independentBeforeReveal !== false);
+
+    root.innerHTML = `
+      <div class="verify-cycle-tag">cycle ${evidence?.cycleNumber || '—'} · ${commits.length} of ${oracle?.expectedAgents ?? 3} commitments sealed</div>
+      ${commits.map(c => {
+        const ind = independence.find(i => i.agentId === c.agentId) || {};
+        const lower = (c.agentName || '').toLowerCase();
+        return `
+        <div class="verify-row ${lower}">
+          <div><span class="checkmark">✓</span></div>
+          <div>
+            <div class="verify-name">${escHtml(c.agentName)}</div>
+            <div class="verify-fields">
+              <div class="lbl">commit at</div>
+              <div class="val">${new Date(c.submittedAt).toISOString().replace('T', ' ').slice(0, 23)} UTC</div>
+              <div class="lbl">commitment</div>
+              <div class="val">${escHtml(c.kzgHash)}</div>
+              <div class="lbl">sealed blob</div>
+              <div class="val">${escHtml(c.sealedBlobHash || '—')}</div>
+              <div class="lbl">eth block</div>
+              <div class="val">${ind.eigenDAReferenceBlock ?? '—'}</div>
+            </div>
+          </div>
+        </div>
+        `;
+      }).join('')}
+
+      <div class="verify-summary">
+        <div class="verify-summary-title">Independence Check</div>
+        <div class="verify-summary-statement ${allBefore ? '' : 'fail'}">
+          ${allBefore
+            ? 'All commits sealed before reveal phase opened. No agent could have copied another\'s answer.'
+            : 'One or more commits arrived after reveal phase opened.'}
+        </div>
+      </div>
+    `;
+  }
+
+  // ── History ─────────────────────────────────────────────────────────────
+  async function fetchHistory() {
+    try {
+      const data = await fetch(API + '/api/history').then(r => r.json());
+      renderHistory(data);
+    } catch (e) {}
+  }
+  function renderHistory(data) {
+    const stats = data?.stats || {};
+    const entries = data?.entries || [];
+
+    document.getElementById('history-stats').innerHTML = `
+      <div class="stat-cell"><div class="v">${stats.total || 0}</div><div class="l">Total Cycles</div></div>
+      <div class="stat-cell"><div class="v">${stats.disagreedWithMarket || 0}</div><div class="l">Disagreed w/ Market</div></div>
+      <div class="stat-cell"><div class="v">${stats.unanimous || 0}</div><div class="l">Unanimous</div></div>
+      <div class="stat-cell"><div class="v">${stats.split || 0}</div><div class="l">Split Decisions</div></div>
+    `;
+
+    const list = document.getElementById('history-list');
+    if (entries.length === 0) {
+      list.innerHTML = `<div class="empty-state"><div class="ic">·</div>No completed cycles yet.</div>`;
+      return;
+    }
+
+    list.innerHTML = entries.map(h => {
+      const c = h.consensus;
+      const marketYes = (h.marketImpliedYes * 100).toFixed(0);
+      const disagreed = (c.answer === 'YES') !== (h.marketImpliedYes >= 0.5);
+      return `
+        <div class="history-row">
+          <div class="h-cycle">cycle ${h.cycleNumber}</div>
+          <div>
+            <div class="h-q">${escHtml(h.question.question)}</div>
+            <div class="h-q-meta">${escHtml(h.consensus.narrative || '').slice(0, 140)}${(h.consensus.narrative || '').length > 140 ? '…' : ''}</div>
+          </div>
+          <div class="h-answer">
+            <div class="h-ans ${c.answer}">${c.answer}</div>
+            <div class="h-conf">${(c.confidence * 100).toFixed(0)}% · ${c.agreementLevel}</div>
+          </div>
+          <div class="h-vs">
+            <div class="h-market">market: <strong>${marketYes}% yes</strong></div>
+            <div class="h-disagree ${disagreed ? 'disagreed' : 'agreed'}">${disagreed ? 'disagreed' : 'agreed'}</div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // ── Main poll loop ──────────────────────────────────────────────────────
+  async function tick() {
+    try {
+      const [oracle, cost] = await Promise.all([
+        fetch(API + '/api/oracle').then(r => r.json()).catch(() => null),
+        fetch(API + '/api/cost').then(r => r.json()).catch(() => null),
+      ]);
+      renderHeader(oracle, cost);
+      renderTimeline(oracle);
+      renderQuestion(oracle?.question);
+      renderAgents(oracle);
+      renderConsensus(oracle);
+
+      if (document.getElementById('panel-verify')?.classList.contains('active')) fetchVerify();
+      if (document.getElementById('panel-history')?.classList.contains('active')) fetchHistory();
+    } catch (e) {}
+  }
+
+  setInterval(tick, 1200);
+  tick();
 </script>
+
 </body>
 </html>

@@ -1,92 +1,100 @@
 #!/bin/bash
-# ── Swarm Mind — Local Multi-Process Launch ──
-# Starts EigenDA proxy + 3 independent agent processes + dashboard
-# No Docker required.
+# ── Swarm Mind Prediction Oracle — Local Multi-Process Launch ──
+# Coordinator + 3 independent prediction agents + dashboard.
+# Uses local `claude` CLI as the LLM (no API key required).
 
 set -e
 cd "$(dirname "$0")"
 
-# Load base env
+# Load base env from .env
 export $(grep -v '^#' .env | xargs) 2>/dev/null || true
 
-echo "╔═══════════════════════════════════════════════════╗"
-echo "║        SWARM MIND — EigenCloud Architecture       ║"
-echo "║  3 independent agents · EigenDA · no coordinator  ║"
-echo "╚═══════════════════════════════════════════════════╝"
+# Force claude-cli LLM (overridable from .env)
+export LLM_PROVIDER=${LLM_PROVIDER:-claude-cli}
+export ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-sonnet}
+
+echo "╔═══════════════════════════════════════════════════════╗"
+echo "║   SWARM MIND  ·  Polymarket Prediction Oracle          ║"
+echo "║   Nakamoto · Szabo · Finney  ·  commit-reveal · Ed25519 ║"
+echo "║   LLM: claude CLI (Claude Code OAuth, no API key)      ║"
+echo "╚═══════════════════════════════════════════════════════╝"
 echo ""
-
-# ── EigenDA Proxy ──────────────────────────────────────
-echo "[1/5] Starting EigenDA proxy (memstore)..."
-if ! docker ps 2>/dev/null | grep -q eigenda-proxy-local; then
-  docker run -d --rm \
-    --name eigenda-proxy-local \
-    -p 4242:4242 \
-    ghcr.io/layr-labs/eigenda-proxy:latest \
-    --memstore.enabled --addr=0.0.0.0 --port=4242 \
-    2>/dev/null && echo "  → EigenDA proxy running on :4242" \
-    || echo "  ⚠ Docker not available — pheromones use SHA-256 fallback"
-else
-  echo "  → EigenDA proxy already running"
-fi
-
-sleep 2
 
 # ── Build ─────────────────────────────────────────────
-echo "[2/5] Building TypeScript..."
-npx tsc --noEmit 2>&1 | head -20 || true
-npx tsc 2>&1 | tail -5
+echo "[1/5] Building TypeScript..."
+npx tsc 2>&1 | tail -10
+if [ ! -f dist/agents/runner.js ]; then
+  echo "  ✗ build failed — dist/agents/runner.js missing"
+  exit 1
+fi
+echo "  ✓ build ok"
 
-# ── Agent Kepler ──────────────────────────────────────
-echo "[3/5] Starting Agent Kepler (Observer)..."
-AGENT_INDEX=0 \
-AGENT_PORT=3001 \
-DB_PATH=./swarm-kepler.db \
-PEER_URLS=http://localhost:3002,http://localhost:3003 \
-node dist/agents/runner.js 2>&1 | sed 's/^/\033[36m[Kepler] \033[0m/' &
-KEPLER_PID=$!
-
-sleep 1
-
-# ── Agent Hubble ──────────────────────────────────────
-echo "[4/5] Starting Agent Hubble (Synthesizer)..."
-AGENT_INDEX=1 \
-AGENT_PORT=3002 \
-DB_PATH=./swarm-hubble.db \
-PEER_URLS=http://localhost:3001,http://localhost:3003 \
-node dist/agents/runner.js 2>&1 | sed 's/^/\033[35m[Hubble] \033[0m/' &
-HUBBLE_PID=$!
-
-sleep 1
-
-# ── Agent Voyager ─────────────────────────────────────
-AGENT_INDEX=2 \
-AGENT_PORT=3003 \
-DB_PATH=./swarm-voyager.db \
-PEER_URLS=http://localhost:3001,http://localhost:3002 \
-node dist/agents/runner.js 2>&1 | sed 's/^/\033[33m[Voyager]\033[0m/' &
-VOYAGER_PID=$!
+# ── Coordinator / Dashboard ───────────────────────────
+echo "[2/5] Starting Coordinator + Dashboard on :3000..."
+AGENT_URLS=http://localhost:3001,http://localhost:3002,http://localhost:3003 \
+DASHBOARD_PORT=3000 \
+LLM_PROVIDER=$LLM_PROVIDER \
+ANTHROPIC_MODEL=$ANTHROPIC_MODEL \
+node dist/dashboard/server-multi.js 2>&1 | sed 's/^/\x1b[32m[Coord]   \x1b[0m/' &
+DASH_PID=$!
 
 sleep 2
 
-# ── Dashboard ─────────────────────────────────────────
-echo "[5/5] Starting Dashboard..."
-AGENT_URLS=http://localhost:3001,http://localhost:3002,http://localhost:3003 \
-DASHBOARD_PORT=3000 \
-node dist/dashboard/server-multi.js 2>&1 | sed 's/^/\033[32m[Dash]   \033[0m/' &
-DASH_PID=$!
+# ── Agent Nakamoto (Technical) ────────────────────────
+echo "[3/5] Starting Agent Nakamoto (Technical) on :3001..."
+AGENT_INDEX=0 \
+AGENT_PORT=3001 \
+DB_PATH=./swarm-nakamoto.db \
+PEER_URLS=http://localhost:3002,http://localhost:3003 \
+COORDINATOR_URL=http://localhost:3000 \
+LLM_PROVIDER=$LLM_PROVIDER \
+ANTHROPIC_MODEL=$ANTHROPIC_MODEL \
+node dist/agents/runner.js 2>&1 | sed 's/^/\x1b[36m[Nakamoto]\x1b[0m /' &
+NAKAMOTO_PID=$!
+
+sleep 1
+
+# ── Agent Szabo (Macro) ───────────────────────────────
+echo "[4/5] Starting Agent Szabo (Macro) on :3002..."
+AGENT_INDEX=1 \
+AGENT_PORT=3002 \
+DB_PATH=./swarm-szabo.db \
+PEER_URLS=http://localhost:3001,http://localhost:3003 \
+COORDINATOR_URL=http://localhost:3000 \
+LLM_PROVIDER=$LLM_PROVIDER \
+ANTHROPIC_MODEL=$ANTHROPIC_MODEL \
+node dist/agents/runner.js 2>&1 | sed 's/^/\x1b[35m[Szabo]   \x1b[0m/' &
+SZABO_PID=$!
+
+sleep 1
+
+# ── Agent Finney (On-chain) ───────────────────────────
+echo "[5/5] Starting Agent Finney (On-chain) on :3003..."
+AGENT_INDEX=2 \
+AGENT_PORT=3003 \
+DB_PATH=./swarm-finney.db \
+PEER_URLS=http://localhost:3001,http://localhost:3002 \
+COORDINATOR_URL=http://localhost:3000 \
+LLM_PROVIDER=$LLM_PROVIDER \
+ANTHROPIC_MODEL=$ANTHROPIC_MODEL \
+node dist/agents/runner.js 2>&1 | sed 's/^/\x1b[33m[Finney]  \x1b[0m/' &
+FINNEY_PID=$!
+
+sleep 2
 
 echo ""
-echo "═══════════════════════════════════════════════════"
-echo "  Dashboard  →  http://localhost:3000"
-echo "  Kepler     →  http://localhost:3001/attestation"
-echo "  Hubble     →  http://localhost:3002/attestation"
-echo "  Voyager    →  http://localhost:3003/attestation"
-echo "  EigenDA    →  http://localhost:4242"
-echo "═══════════════════════════════════════════════════"
+echo "═══════════════════════════════════════════════════════"
+echo "  Dashboard       →  http://localhost:3000"
+echo "  Coordinator API →  http://localhost:3000/api/coordinator"
+echo "  Oracle API      →  http://localhost:3000/api/oracle"
+echo "  Nakamoto        →  http://localhost:3001/oracle"
+echo "  Szabo           →  http://localhost:3002/oracle"
+echo "  Finney          →  http://localhost:3003/oracle"
+echo "═══════════════════════════════════════════════════════"
 echo ""
-echo "Press Ctrl+C to stop all agents."
+echo "Press Ctrl+C to stop everything."
 
 # Cleanup on exit
-trap "echo 'Shutting down...'; kill $KEPLER_PID $HUBBLE_PID $VOYAGER_PID $DASH_PID 2>/dev/null; docker stop eigenda-proxy-local 2>/dev/null; exit 0" INT TERM
+trap "echo 'Shutting down...'; kill $NAKAMOTO_PID $SZABO_PID $FINNEY_PID $DASH_PID 2>/dev/null; exit 0" INT TERM
 
 wait

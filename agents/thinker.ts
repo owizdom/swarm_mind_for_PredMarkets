@@ -8,12 +8,20 @@ import type {
   Pheromone,
   CollectiveReport,
   ScienceDataset,
+  PolymarketQuestion,
+  AgentPrediction,
+  OracleConsensus,
 } from "./types";
+import { callClaudeCLI } from "./llm-claude-cli";
 let openaiClient: OpenAI | null = null;
 let anthropicClient: Anthropic | null = null;
 let activeProvider: LLMConfig["provider"] = "eigenai";
 let modelName = "gpt-oss-120b-f16";
 let totalTokensTracked = 0;
+let totalCostTracked = 0;
+let totalCallsTracked = 0;
+export function getTotalCostUsd(): number { return totalCostTracked; }
+export function getTotalCalls(): number { return totalCallsTracked; }
 
 // ── Rate limiter (shared across all agents in this process) ──
 const DAILY_LIMIT  = parseInt(process.env.LLM_DAILY_LIMIT  || "14000"); // buffer under 14,400
@@ -52,7 +60,13 @@ function isRateLimited(): boolean {
 
 export function initThinker(config: LLMConfig): void {
   activeProvider = config.provider;
-  modelName = config.model;
+  modelName = config.model || "sonnet";
+
+  if (config.provider === "claude-cli") {
+    // No client to initialize — calls go through `claude` subprocess
+    console.log(`[THINKER] Initialized with claude CLI subprocess (model: ${modelName})`);
+    return;
+  }
 
   if (config.provider === "anthropic") {
     anthropicClient = new Anthropic({ apiKey: config.apiKey });
@@ -102,10 +116,34 @@ async function callLLM(
   const maxTokens = options.maxTokens || 1000;
   const temperature = options.temperature ?? 0.7;
 
+  if (activeProvider === "claude-cli") {
+    return callClaudeCLIWrapper(systemPrompt, userPrompt);
+  }
   if (activeProvider === "anthropic") {
     return callAnthropic(systemPrompt, userPrompt, maxTokens, temperature, options.jsonMode);
   }
   return callOpenAI(systemPrompt, userPrompt, maxTokens, temperature, options.jsonMode);
+}
+
+async function callClaudeCLIWrapper(
+  systemPrompt: string,
+  userPrompt: string
+): Promise<{ content: string; tokensUsed: number }> {
+  try {
+    const r = await callClaudeCLI(systemPrompt, userPrompt, {
+      maxBudgetUsd: 1.0,
+      model: modelName || "sonnet",
+      timeoutMs: 90_000,
+    });
+    totalTokensTracked += r.tokensUsed;
+    totalCostTracked += r.costUsd;
+    totalCallsTracked++;
+    return { content: r.content, tokensUsed: r.tokensUsed };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`  [LLM] claude-cli failed: ${msg.slice(0, 200)}`);
+    return { content: "", tokensUsed: 0 };
+  }
 }
 
 async function callAnthropic(
@@ -408,6 +446,211 @@ Respond as JSON:
   };
 
   return { report, tokensUsed };
+}
+
+// ── Market Prediction (Polymarket) ──────────────────────────────────────────
+
+const PERSONALITY_LENS: Record<string, string> = {
+  Technical: "Quantitative analyst. Anchor every claim to numbers: implied probability vs base rate, comparable past events, statistical priors. Be sharp.",
+  Macro:     "Macro/contextual thinker. Focus on incentives of involved parties, structural drivers, and second-order consequences. Argue from causes.",
+  OnChain:   "Evidence aggregator. Weigh reported facts, what's verifiable, what's plausible. Identify the most likely scenario from publicly observable signals.",
+};
+
+function clamp01(n: number): number {
+  if (!Number.isFinite(n)) return 0.5;
+  return Math.max(0, Math.min(1, n));
+}
+
+function parseAnswerString(s: unknown): "YES" | "NO" | "UNCERTAIN" | null {
+  if (typeof s !== "string") return null;
+  const u = s.trim().toUpperCase();
+  if (u === "YES" || u === "NO" || u === "UNCERTAIN") return u;
+  return null;
+}
+
+function stripFences(content: string): string {
+  let cleaned = content.trim();
+  if (cleaned.startsWith("```json")) cleaned = cleaned.slice(7);
+  else if (cleaned.startsWith("```")) cleaned = cleaned.slice(3);
+  if (cleaned.endsWith("```")) cleaned = cleaned.slice(0, -3);
+  return cleaned.trim();
+}
+
+/**
+ * Each agent forms an independent prediction for a Polymarket question.
+ * This is the core EXPLORE-phase reasoning call. The result is sealed
+ * cryptographically before any peer can see it.
+ */
+export async function formMarketPrediction(
+  agent: AutonomousAgentState,
+  question: PolymarketQuestion
+): Promise<{ prediction: AgentPrediction; tokensUsed: number }> {
+  const lens = PERSONALITY_LENS[agent.specialization] || "Be objective and data-driven.";
+
+  const systemPrompt =
+    `You are ${agent.name}, an autonomous prediction oracle agent. Specialization: ${agent.specialization}. ` +
+    `${lens} Your prediction is sealed cryptographically BEFORE you see any other agent's analysis. ` +
+    `Be honest. The market price is a signal, not gospel — your job is to assess whether the market is right. ` +
+    `Output is binding and signed by your hardware key. Respond with ONLY a valid JSON object, no preamble, no markdown fences.`;
+
+  const userPrompt =
+`Polymarket question: "${question.question}"
+
+Description: ${(question.description || "(no description)").slice(0, 800)}
+
+Market data:
+- Implied probability YES: ${(question.yesPrice * 100).toFixed(1)}%
+- Implied probability NO:  ${(question.noPrice * 100).toFixed(1)}%
+- 24h volume: $${Math.round(question.volume24hr).toLocaleString()}
+- Resolves: ${question.endDate || "unknown"}
+- Category: ${question.category}
+
+Form your independent prediction now.
+
+Respond as JSON:
+{
+  "answer": "YES" | "NO" | "UNCERTAIN",
+  "confidence": 0.0-1.0,
+  "reasoning": "2-3 sentences explaining your verdict, citing specific evidence or reasoning",
+  "disagreesWithMarket": true | false
+}`;
+
+  const { content, tokensUsed } = await callLLM(systemPrompt, userPrompt, {
+    maxTokens: 600,
+    temperature: 0.7,
+    jsonMode: true,
+    force: true,
+  });
+
+  let parsed: { answer?: unknown; confidence?: unknown; reasoning?: unknown; disagreesWithMarket?: unknown } = {};
+  try {
+    parsed = JSON.parse(stripFences(content));
+  } catch {
+    /* fall through to fallback below */
+  }
+
+  const llmAnswer = parseAnswerString(parsed.answer);
+  const fallbackAnswer: "YES" | "NO" | "UNCERTAIN" =
+    question.yesPrice >= 0.65 ? "YES" :
+    question.yesPrice <= 0.35 ? "NO"  : "UNCERTAIN";
+
+  const answer = llmAnswer ?? fallbackAnswer;
+  const confidence = clamp01(typeof parsed.confidence === "number" ? parsed.confidence : 0.5);
+  const reasoning = typeof parsed.reasoning === "string" && parsed.reasoning.trim().length > 0
+    ? parsed.reasoning.trim()
+    : `Fallback prediction derived from market price (${(question.yesPrice * 100).toFixed(0)}% YES). LLM call returned no structured output.`;
+  const disagreesWithMarket = typeof parsed.disagreesWithMarket === "boolean"
+    ? parsed.disagreesWithMarket
+    : (answer === "YES" && question.yesPrice < 0.5) || (answer === "NO" && question.yesPrice > 0.5);
+
+  return {
+    prediction: {
+      id: uuid(),
+      agentId: agent.id,
+      agentName: agent.name,
+      specialization: agent.specialization,
+      questionId: question.id,
+      questionText: question.question,
+      answer,
+      confidence,
+      reasoning,
+      marketImpliedYes: question.yesPrice,
+      disagreesWithMarket,
+      timestamp: Date.now(),
+    },
+    tokensUsed,
+  };
+}
+
+/**
+ * SYNTHESIS-phase call: aggregates sealed agent predictions into a single
+ * oracle answer. Uses confidence-weighted voting as a deterministic fallback
+ * if the LLM call fails, so the demo cycle always completes.
+ */
+export async function generateOracleConsensus(
+  predictions: AgentPrediction[],
+  question: PolymarketQuestion,
+  cycleId: string,
+  preCommitProofs: Record<string, string>
+): Promise<{ consensus: OracleConsensus; tokensUsed: number }> {
+  const tally = { YES: 0, NO: 0, UNCERTAIN: 0 };
+  for (const p of predictions) tally[p.answer] += p.confidence;
+
+  const baselineAnswer: "YES" | "NO" | "UNCERTAIN" =
+    tally.YES > tally.NO && tally.YES > tally.UNCERTAIN ? "YES" :
+    tally.NO  > tally.YES && tally.NO  > tally.UNCERTAIN ? "NO"  : "UNCERTAIN";
+
+  const yesCount = predictions.filter(p => p.answer === "YES").length;
+  const noCount  = predictions.filter(p => p.answer === "NO").length;
+  const baselineAgreement: "unanimous" | "majority" | "split" =
+    (yesCount === predictions.length || noCount === predictions.length) ? "unanimous" :
+    (yesCount >= 2 || noCount >= 2) ? "majority" : "split";
+
+  const systemPrompt =
+    `You are the oracle synthesizer. ${predictions.length} independent autonomous agents analyzed the same Polymarket question in cryptographic isolation — their predictions were sealed with hardware keys before they could see each other's work. Synthesize their reasoning into a single oracle answer. Do not hedge. Respond with ONLY valid JSON, no preamble, no markdown fences.`;
+
+  const userPrompt =
+`Polymarket question: "${question.question}"
+Market implied YES: ${(question.yesPrice * 100).toFixed(1)}%
+
+Sealed predictions:
+
+${predictions.map(p => `[${p.agentName} — ${p.specialization}] ${p.answer} @ ${(p.confidence*100).toFixed(0)}% confidence
+  ${p.reasoning}`).join("\n\n")}
+
+Confidence-weighted tally: YES=${tally.YES.toFixed(2)}, NO=${tally.NO.toFixed(2)}, UNCERTAIN=${tally.UNCERTAIN.toFixed(2)}
+Baseline winner: ${baselineAnswer} (${baselineAgreement})
+
+Respond as JSON:
+{
+  "answer": "YES" | "NO" | "UNCERTAIN",
+  "confidence": 0.0-1.0,
+  "narrative": "2-3 sentences explaining the consensus, naming agents whose reasoning carried it",
+  "agreementLevel": "unanimous" | "majority" | "split"
+}`;
+
+  const { content, tokensUsed } = await callLLM(systemPrompt, userPrompt, {
+    maxTokens: 700,
+    temperature: 0.6,
+    jsonMode: true,
+    force: true,
+  });
+
+  let parsed: { answer?: unknown; confidence?: unknown; narrative?: unknown; agreementLevel?: unknown } = {};
+  try {
+    parsed = JSON.parse(stripFences(content));
+  } catch {
+    /* use baseline fallback below */
+  }
+
+  const llmAnswer = parseAnswerString(parsed.answer);
+  const totalWeight = Math.max(0.001, tally.YES + tally.NO + tally.UNCERTAIN);
+  const baselineConfidence = Math.max(tally.YES, tally.NO, tally.UNCERTAIN) / totalWeight;
+  const llmAgreement: "unanimous" | "majority" | "split" | null =
+    parsed.agreementLevel === "unanimous" || parsed.agreementLevel === "majority" || parsed.agreementLevel === "split"
+      ? parsed.agreementLevel
+      : null;
+
+  return {
+    consensus: {
+      id: uuid(),
+      cycleId,
+      questionId: question.id,
+      questionText: question.question,
+      questionUrl: question.url,
+      marketImpliedYes: question.yesPrice,
+      answer: llmAnswer ?? baselineAnswer,
+      confidence: clamp01(typeof parsed.confidence === "number" ? parsed.confidence : baselineConfidence),
+      agreementLevel: llmAgreement ?? baselineAgreement,
+      narrative: typeof parsed.narrative === "string" && parsed.narrative.trim().length > 0
+        ? parsed.narrative.trim()
+        : `Confidence-weighted vote: YES=${tally.YES.toFixed(2)}, NO=${tally.NO.toFixed(2)}, UNCERTAIN=${tally.UNCERTAIN.toFixed(2)}. Winner: ${baselineAnswer} by ${baselineAgreement} of agents.`,
+      perAgentPredictions: predictions,
+      preCommitProofs,
+      generatedAt: Date.now(),
+    },
+    tokensUsed,
+  };
 }
 
 

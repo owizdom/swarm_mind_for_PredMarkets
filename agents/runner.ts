@@ -25,13 +25,11 @@ import cors from "cors";
 import path from "path";
 import fs from "fs";
 import { SwarmAgent } from "./agent";
-import { initDatabase, saveAgent, savePheromone, saveThought, saveCommitment, saveCollectiveMemory, closeDatabase } from "./persistence";
-import { initThinker, getTotalTokensUsed, generateCollectiveReport, getLLMUsage } from "./thinker";
+import { initDatabase, saveAgent, savePheromone, saveCommitment, closeDatabase } from "./persistence";
+import { initThinker, getLLMUsage, getTotalCostUsd, getTotalCalls } from "./thinker";
 import { isEnabled as eigenDAEnabled, disperseBlob } from "./eigenda";
 import { verifyAttestation, buildAttestation } from "./keystore";
-import type { Pheromone, PheromoneChannel, LLMConfig, CollectiveMemory, SealedBlob, AgentCommitment, CyclePhase, FindingSummary } from "./types";
-import { v4 as uuid } from "uuid";
-import { hash } from "./types";
+import type { Pheromone, PheromoneChannel, LLMConfig, SealedBlob, AgentCommitment, CyclePhase, FindingSummary, PolymarketQuestion, AgentPrediction } from "./types";
 import crypto from "crypto";
 
 // ── Config from environment ──
@@ -52,10 +50,14 @@ const COORDINATOR_URL  = process.env.COORDINATOR_URL || "";
 initDatabase(DB_PATH);
 
 function initLLM(): boolean {
-  const provider = (process.env.LLM_PROVIDER || "eigenai") as LLMConfig["provider"];
+  const provider = (process.env.LLM_PROVIDER || "claude-cli") as LLMConfig["provider"];
   let config: LLMConfig;
 
   switch (provider) {
+    case "claude-cli":
+      // No API key needed — uses local `claude` CLI subprocess + your Claude Code OAuth.
+      config = { provider: "claude-cli", apiUrl: "", apiKey: "", model: process.env.ANTHROPIC_MODEL || "sonnet" };
+      try { initThinker(config); return true; } catch { return false; }
     case "anthropic":
       config = { provider: "anthropic", apiUrl: "", apiKey: process.env.ANTHROPIC_API_KEY || "", model: process.env.ANTHROPIC_MODEL || "claude-opus-4-6" };
       break;
@@ -74,6 +76,29 @@ const llmReady = initLLM();
 const agent = new SwarmAgent(AGENT_INDEX);
 if (llmReady) agent.enableEngineering();
 
+// Pre-warm claude CLI so the first real prediction is not a cold start.
+// Each agent fires a tiny dummy call on boot. Cost ~$0.02.
+import { callClaudeCLI } from "./llm-claude-cli";
+if (llmReady) {
+  callClaudeCLI(
+    "You output JSON only.",
+    'Respond ONLY: {"warm":true}',
+    { maxBudgetUsd: 0.5, timeoutMs: 30_000 }
+  )
+    .then(() => console.log(`  [${agent.state.name}] LLM warmed`))
+    .catch((err) => console.warn(`  [${agent.state.name}] warm-up failed: ${err instanceof Error ? err.message.slice(0, 80) : String(err)}`));
+}
+
+/** Sleep for the in-flight LLM prediction to complete (or until timeout). */
+async function waitForPrediction(timeoutMs: number): Promise<boolean> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (agent.getCurrentPrediction()) return true;
+    await new Promise(r => setTimeout(r, 200));
+  }
+  return false;
+}
+
 // ── Local pheromone channel ──
 const channel: PheromoneChannel = {
   pheromones: [],
@@ -88,7 +113,6 @@ const channel: PheromoneChannel = {
 let step = 0;
 let cycleResetAt = 0;         // timestamp of last cycle reset — pheromones older than this are ignored
 let noTransitionBeforeStep = 0; // prevents immediate re-transition right after reset
-const collectiveMemories: CollectiveMemory[] = [];
 
 // ── Commit-Reveal state ──
 let cyclePhase: CyclePhase = "explore";
@@ -98,92 +122,7 @@ const agentCommitments = new Map<string, AgentCommitment>();
 const explorePheromones: Pheromone[] = [];
 let synthesisFiredThisCycle = false;  // prevents double-firing synthesis per cycle
 let lastCoordPhase: CyclePhase = "explore"; // tracks last known coordinator phase
-
-// ── Collective report generation (triggered at phase transition) ──
-async function generateCollectiveMemory(
-  preCommitProofs: Record<string, string>  // agentId → commitmentHash
-): Promise<unknown> {
-  try {
-    const agentThoughts = agent.state.thoughts.slice(-15).map(t => ({
-      agentName:      agent.state.name,
-      specialization: agent.state.specialization,
-      observation:    t.observation,
-      reasoning:      t.reasoning,
-      conclusion:     t.conclusion,
-      confidence:     t.confidence,
-    }));
-
-    // Include peer pheromone content as proxy for other agents' findings
-    const peerThoughts = channel.pheromones
-      .filter(p => p.agentId !== agent.state.id && p.strength > 0.25)
-      .slice(0, 10)
-      .map(p => ({
-        agentName:      p.agentId.slice(0, 8),
-        specialization: p.domain,
-        observation:    p.content.slice(0, 120),
-        reasoning:      "",
-        conclusion:     p.content,
-        confidence:     p.confidence,
-      }));
-
-    const allThoughts = [...agentThoughts, ...peerThoughts];
-    const datasets = agent.state.reposStudied.length > 0
-      ? agent.state.reposStudied
-      : channel.pheromones.map(p => p.domain).filter((d, i, a) => a.indexOf(d) === i);
-
-    if (allThoughts.length === 0) return;
-
-    let { report, tokensUsed } = await generateCollectiveReport(
-      allThoughts,
-      datasets,
-      "NASA Science Collective Intelligence"
-    );
-
-    // If the LLM was rate-limited, it returns only the fallback topic as overview
-    // Wait and retry once to give Groq quota time to recover
-    if (!report.keyFindings.length && !report.verdict) {
-      console.log(`  [${agent.state.name}] Collective report rate-limited — retrying in 15s`);
-      await new Promise(r => setTimeout(r, 15_000));
-      const retry = await generateCollectiveReport(allThoughts, datasets, "NASA Science Collective Intelligence");
-      if (retry.report.keyFindings.length > 0) {
-        report = retry.report;
-        tokensUsed += retry.tokensUsed;
-      }
-    }
-
-    agent.state.tokensUsed += tokensUsed;
-
-    const synthesis = [
-      report.overview,
-      "",
-      "Key Findings:",
-      ...report.keyFindings.map(f => `• ${f}`),
-      "",
-      report.opinions,
-    ].join("\n");
-
-    const memory: CollectiveMemory = {
-      id:            uuid(),
-      topic:         "NASA Science Collective",
-      synthesis,
-      contributors:  [agent.state.id],
-      pheromoneIds:  channel.pheromones.map(p => p.id),
-      confidence:    0.85,
-      attestation:   hash(report.overview + report.verdict),
-      createdAt:     Date.now(),
-      report,
-      preCommitProofs,
-    };
-
-    collectiveMemories.push(memory);
-    try { saveCollectiveMemory(memory); } catch {}
-    console.log(`  [${agent.state.name}] Collective memory generated — ${report.keyFindings.length} findings`);
-    return report;
-  } catch (err) {
-    console.error(`  [${agent.state.name}] Collective report error:`, err);
-    return null;
-  }
-}
+let activeQuestion: PolymarketQuestion | null = null;
 
 // ── Coordinator polling ──────────────────────────────────────────────────
 
@@ -193,6 +132,7 @@ interface CoordState {
   cycleNumber: number;
   windowRemainingMs: number;
   commitCount: number;
+  currentQuestion?: PolymarketQuestion | null;
 }
 
 async function pollCoordinator(): Promise<CoordState | null> {
@@ -208,9 +148,19 @@ async function pollCoordinator(): Promise<CoordState | null> {
   }
 }
 
-async function registerCommitWithCoordinator(commitment: AgentCommitment, eigenDABatchId: string | null, eigenDAReferenceBlock: number | null): Promise<void> {
+async function registerCommitWithCoordinator(
+  commitment: AgentCommitment,
+  eigenDABatchId: string | null,
+  eigenDAReferenceBlock: number | null,
+  prediction: AgentPrediction | null
+): Promise<void> {
   if (!COORDINATOR_URL) return;
   try {
+    // Stamp the prediction with commitmentHash so verifiers can link them
+    const stampedPrediction = prediction
+      ? { ...prediction, commitmentHash: commitment.commitmentHash }
+      : null;
+
     await fetch(`${COORDINATOR_URL}/api/coordinator/commit`, {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
@@ -222,24 +172,13 @@ async function registerCommitWithCoordinator(commitment: AgentCommitment, eigenD
         eigenDAReferenceBlock,
         sealedBlobHash:       commitment.sealedBlobHash,
         committedViaEigenDA:  commitment.committedViaEigenDA,
+        prediction:           stampedPrediction,
       }),
       signal: AbortSignal.timeout(3000),
     });
   } catch (err) {
     console.warn(`  [${agent.state.name}] Coordinator commit registration failed: ${err instanceof Error ? err.message.slice(0, 60) : String(err)}`);
   }
-}
-
-async function notifySynthesis(report: unknown): Promise<void> {
-  if (!COORDINATOR_URL) return;
-  try {
-    await fetch(`${COORDINATOR_URL}/api/coordinator/synthesis`, {
-      method:  "POST",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ report }),
-      signal:  AbortSignal.timeout(2000),
-    });
-  } catch { /* non-critical */ }
 }
 
 // ── Commit phase: seal findings to EigenDA ──
@@ -332,7 +271,8 @@ async function performCommit(): Promise<void> {
   try { saveCommitment(ownCommitment); } catch {}
 
   // Register with coordinator (objective record) + broadcast to peers (gossip fallback)
-  await registerCommitWithCoordinator(ownCommitment, eigenDABatchId, eigenDAReferenceBlock);
+  // Attach the agent's prediction so the coordinator can synthesize the oracle answer.
+  await registerCommitWithCoordinator(ownCommitment, eigenDABatchId, eigenDAReferenceBlock, agent.getCurrentPrediction());
   await Promise.allSettled(
     PEER_URLS.map(url => fetch(`${url}/commit`, {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -466,13 +406,13 @@ app.get("/api/state", (_req, res) => {
       avgEnergy: agent.state.energy,
       density: channel.density,
       synchronizedCount: agent.state.synchronized ? 1 : 0,
-      collectiveMemoryCount: collectiveMemories.length,
+      collectiveMemoryCount: 0,
       uniqueDomainsExplored: new Set(channel.pheromones.map((p) => p.domain)).size,
     },
     eigenDA: {
       enabled: eigenDAEnabled(),
       attestedPheromones: channel.pheromones.filter((p) => p.eigendaCommitment).length,
-      attestedCollectiveMemories: collectiveMemories.filter((m) => !!m.attestation).length,
+      attestedCollectiveMemories: 0,
     },
   });
 });
@@ -568,7 +508,7 @@ app.get("/api/report", (_req, res) => {
         studiedBy: [agent.state.name],
       };
     }),
-    collectiveMemories,
+    collectiveMemories: [],
   });
 });
 
@@ -655,7 +595,7 @@ app.get("/attestation", (_, res) => {
 });
 
 app.get("/collective", (_, res) => {
-  res.json(collectiveMemories);
+  res.json([]);
 });
 
 // Receive pheromone pushed by a peer
@@ -669,6 +609,29 @@ app.post("/pheromone", (req, res) => {
 });
 
 app.get("/health", (_, res) => res.json({ ok: true, agent: agent.state.name, step, llm: getLLMUsage() }));
+
+// GET /cost — this agent's cumulative LLM spend (used by dashboard /api/cost aggregator)
+app.get("/cost", (_, res) => res.json({
+  agentName: agent.state.name,
+  totalCostUsd: getTotalCostUsd(),
+  totalCalls: getTotalCalls(),
+}));
+
+// GET /oracle — exposes this agent's current prediction (sealed or not)
+app.get("/oracle", (_req, res) => {
+  const prediction = agent.getCurrentPrediction();
+  const question = agent.getActiveQuestion();
+  res.json({
+    agentId:    agent.state.id,
+    agentName:  agent.state.name,
+    specialization: agent.state.specialization,
+    cyclePhase,
+    activeQuestion: question,
+    prediction: prediction
+      ? { ...prediction, commitmentHash: agent.state.commitmentHash || prediction.commitmentHash }
+      : null,
+  });
+});
 
 // GET /commit — exposes this agent's current commitment
 app.get("/commit", (_, res) => {
@@ -760,6 +723,7 @@ function resetCycle(): void {
   explorePheromones.length  = 0;
   agent.state.commitmentHash  = undefined;
   agent.state.commitTimestamp = undefined;
+  agent.resetForNewCycle();
   cyclePhase                = "explore";
   phaseStartStep            = step;
   explorePhaseEndStep       = step + EXPLORE_STEPS;
@@ -786,6 +750,16 @@ async function run(): Promise<void> {
     const coordState = await pollCoordinator();
 
     if (coordState) {
+      // Pick up the active question if the coordinator has assigned one
+      if (coordState.currentQuestion && coordState.currentQuestion.id) {
+        const incoming = coordState.currentQuestion;
+        if (!activeQuestion || activeQuestion.id !== incoming.id) {
+          activeQuestion = incoming;
+          agent.setActiveQuestion(incoming);
+          console.log(`  [${agent.state.name}] Active question: "${incoming.question.slice(0, 80)}" (YES=${(incoming.yesPrice*100).toFixed(0)}%)`);
+        }
+      }
+
       const coordPhase = coordState.phase as CyclePhase;
 
       // Coordinator phase changed — react accordingly
@@ -794,30 +768,37 @@ async function run(): Promise<void> {
         lastCoordPhase = coordPhase;
 
         if (coordPhase === "commit" && cyclePhase === "explore") {
-          // Coordinator opened the commit window — seal our findings
+          // Coordinator opened the commit window — seal our findings.
+          // Wait briefly for any in-flight prediction so we don't commit empty.
+          await waitForPrediction(8000);
           cyclePhase         = "commit";
           channel.cyclePhase = "commit";
           await performCommit(); // → sets cyclePhase = "reveal"
 
-        } else if (coordPhase === "reveal" && cyclePhase !== "reveal") {
-          // Coordinator opened reveal window — start gossiping
+        } else if (coordPhase === "reveal" && cyclePhase === "explore") {
+          // The coordinator advanced past the commit window before we got there.
+          // Race recovery: wait for prediction (longer), force-commit, then advance.
+          console.log(`  [${agent.state.name}] late path — coordinator already at reveal, force-committing`);
+          await waitForPrediction(12000);
+          if (agent.getCurrentPrediction()) {
+            cyclePhase         = "commit";
+            channel.cyclePhase = "commit";
+            await performCommit();
+          } else {
+            console.warn(`  [${agent.state.name}] no prediction available for late commit — skipping cycle`);
+            cyclePhase         = "reveal";
+            channel.cyclePhase = "reveal";
+          }
+
+        } else if (coordPhase === "reveal" && cyclePhase === "commit") {
+          // Mid-commit when coordinator advanced — that's fine, just transition
           cyclePhase         = "reveal";
           channel.cyclePhase = "reveal";
 
         } else if (coordPhase === "synthesis" && !synthesisFiredThisCycle) {
-          // Coordinator opened synthesis window — generate collective memory
+          // Coordinator owns synthesis now — agents just observe.
           synthesisFiredThisCycle = true;
-          console.log(`\n${"█".repeat(50)}`);
-          console.log(`█  [${agent.state.name}] SYNTHESIS — coordinator cycle ${coordState.cycleNumber}`);
-          console.log(`█  Commits: ${coordState.commitCount} | Pheromones: ${channel.pheromones.length}`);
-          console.log(`${"█".repeat(50)}\n`);
-
-          const proofSnapshot = Object.fromEntries(
-            [...agentCommitments.entries()].map(([id, c]) => [id, c.commitmentHash])
-          );
-          generateCollectiveMemory(proofSnapshot)
-            .then(report => notifySynthesis(report))
-            .catch(() => {});
+          console.log(`  [${agent.state.name}] Coordinator entering SYNTHESIS — cycle ${coordState.cycleNumber}`);
 
         } else if (coordPhase === "explore" && cyclePhase !== "explore") {
           // Coordinator reset to explore — new cycle begins
@@ -832,21 +813,13 @@ async function run(): Promise<void> {
         channel.cyclePhase = "commit";
         await performCommit();
       }
-
-      // Synthesis trigger: density threshold during reveal phase
+      // Note: in fallback mode there is no coordinator to run synthesis,
+      // so each agent will eventually time out and reset on its own.
       if (cyclePhase === "reveal" && !synthesisFiredThisCycle && step >= noTransitionBeforeStep) {
         const synced = channel.pheromones.filter(p => p.strength > 0.4).length;
         if (channel.density >= channel.criticalThreshold && synced >= 3) {
           synthesisFiredThisCycle = true;
-          console.log(`\n${"█".repeat(50)}`);
-          console.log(`█  [${agent.state.name}] PHASE TRANSITION (local fallback) — step ${step}`);
-          console.log(`█  Density: ${channel.density.toFixed(3)} | Pheromones: ${channel.pheromones.length}`);
-          console.log(`${"█".repeat(50)}\n`);
-
-          const proofSnapshot = Object.fromEntries(
-            [...agentCommitments.entries()].map(([id, c]) => [id, c.commitmentHash])
-          );
-          generateCollectiveMemory(proofSnapshot).catch(() => {});
+          console.log(`  [${agent.state.name}] No coordinator — local cycle reset at step ${step}`);
           resetCycle();
         }
       }

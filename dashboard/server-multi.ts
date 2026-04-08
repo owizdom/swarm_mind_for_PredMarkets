@@ -11,11 +11,70 @@ import cors from "cors";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
+import { fetchInterestingQuestions, fetchQuestionById } from "../agents/markets";
+import { initThinker, generateOracleConsensus } from "../agents/thinker";
+import { callClaudeCLI } from "../agents/llm-claude-cli";
+import type { PolymarketQuestion, AgentPrediction, OracleConsensus, LLMConfig } from "../agents/types";
 
-const AGENT_URLS      = (process.env.AGENT_URLS || "http://127.0.0.1:3002,http://127.0.0.1:3003,http://127.0.0.1:3004").split(",").filter(Boolean);
-const DASHBOARD_PORT  = parseInt(process.env.DASHBOARD_PORT || "3001");
-const EXPLORE_STEPS   = parseInt(process.env.EXPLORE_STEPS   || "20");
-const STEP_INTERVAL   = parseInt(process.env.SYNC_INTERVAL_MS || "1500");
+const AGENT_URLS      = (process.env.AGENT_URLS || "http://127.0.0.1:3001,http://127.0.0.1:3002,http://127.0.0.1:3003").split(",").filter(Boolean);
+// Railway sets $PORT for the public service. Locally we use DASHBOARD_PORT.
+const DASHBOARD_PORT  = parseInt(process.env.PORT || process.env.DASHBOARD_PORT || "3000");
+const EXPLORE_STEPS   = parseInt(process.env.EXPLORE_STEPS   || "18");
+const STEP_INTERVAL   = parseInt(process.env.SYNC_INTERVAL_MS || "2000");
+
+// ── Cost tracking ──────────────────────────────────────────────────────────
+let totalCostUsd = 0;
+let totalCalls = 0;
+export function trackCost(usd: number): void {
+  totalCostUsd += usd;
+  totalCalls++;
+}
+
+// ── Cycle history ──────────────────────────────────────────────────────────
+interface HistoryEntry {
+  cycleNumber: number;
+  cycleId: string;
+  question: PolymarketQuestion;
+  consensus: OracleConsensus;
+  marketImpliedYes: number;
+  generatedAt: number;
+}
+const cycleHistory: HistoryEntry[] = [];
+function appendCycleHistory(consensus: OracleConsensus): void {
+  if (!coordinator.currentQuestion) return;
+  cycleHistory.unshift({
+    cycleNumber: coordinator.cycleNumber,
+    cycleId: coordinator.cycleId,
+    question: coordinator.currentQuestion,
+    consensus,
+    marketImpliedYes: coordinator.currentQuestion.yesPrice,
+    generatedAt: Date.now(),
+  });
+  if (cycleHistory.length > 30) cycleHistory.pop();
+}
+
+// Initialize thinker for synthesis calls (uses claude CLI subprocess)
+const llmProvider = (process.env.LLM_PROVIDER || "claude-cli") as LLMConfig["provider"];
+try {
+  initThinker({
+    provider: llmProvider,
+    apiUrl: process.env.OPENAI_API_URL || "",
+    apiKey: process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY || "",
+    model: process.env.ANTHROPIC_MODEL || process.env.OPENAI_MODEL || "sonnet",
+  });
+} catch (err) {
+  console.warn(`[COORDINATOR] thinker init failed: ${err instanceof Error ? err.message : String(err)}`);
+}
+
+// Pre-warm the LLM so the first synthesis call is not a cold start (~10-15s saved)
+console.log("[COORDINATOR] warming claude CLI…");
+callClaudeCLI(
+  "You output JSON only.",
+  'Respond ONLY: {"warm":true}',
+  { maxBudgetUsd: 0.5, timeoutMs: 30_000 }
+)
+  .then((r) => { trackCost(r.costUsd); console.log(`[COORDINATOR] LLM warmed ($${r.costUsd.toFixed(4)})`); })
+  .catch((err) => console.warn(`[COORDINATOR] LLM warm-up failed: ${err instanceof Error ? err.message.slice(0, 100) : String(err)}`));
 
 // ── Coordinator State Machine ──────────────────────────────────────────────
 // Manages objective, coordinator-driven cycle phases instead of each agent
@@ -34,6 +93,7 @@ interface CommitEntry {
   submittedAt: number;
   committedViaEigenDA: boolean;
   windowMissed: boolean;
+  prediction: AgentPrediction | null;
 }
 
 interface SlashEvent {
@@ -55,15 +115,25 @@ interface CoordinatorState {
   slashEvents: SlashEvent[];
   lastSynthesisReport: unknown | null;
   expectedAgentCount: number;
+  currentQuestion: PolymarketQuestion | null;
+  consensus: OracleConsensus | null;
+  synthesisFired: boolean;
+  consensusReadyAt: number | null;       // when consensus was first set — used to time the display
+  synthesisInFlight: boolean;
 }
 
-// Phase durations (wall-clock ms)
-const EXPLORE_MS   = EXPLORE_STEPS * STEP_INTERVAL;
-const COMMIT_MS    = 4 * STEP_INTERVAL;   // 4 steps to disperse + register
-const REVEAL_MS    = 16 * STEP_INTERVAL;  // 16 steps to gossip
-const SYNTHESIS_MS = 8 * STEP_INTERVAL;   // 8 steps for synthesis then auto-reset
+// Phase durations (wall-clock ms) — min-time + completion semantics
+//   EXPLORE: full window (no early exit) — agents need uninterrupted thinking time
+//   COMMIT:  closes early when all 3 commits land, otherwise after COMMIT_MS_MAX
+//   REVEAL:  full window (gossip)
+//   SYNTHESIS: stays until consensus is computed AND has been displayed for CONSENSUS_DISPLAY_MS
+const EXPLORE_MS         = EXPLORE_STEPS * STEP_INTERVAL;
+const COMMIT_MS_MAX      = 30 * STEP_INTERVAL;      // up to 60s for slow agents (was 8s)
+const REVEAL_MS          = 16 * STEP_INTERVAL;
+const SYNTHESIS_MS_MAX   = 30 * STEP_INTERVAL;      // up to 60s for the LLM call (was 16s)
+const CONSENSUS_DISPLAY_MS = 14 * STEP_INTERVAL;    // 28s for the audience to read the answer
 
-function newCycleState(cycleNumber: number): CoordinatorState {
+function newCycleState(cycleNumber: number, carryQuestion: PolymarketQuestion | null = null): CoordinatorState {
   return {
     cycleId: crypto.randomUUID(),
     cycleNumber,
@@ -75,10 +145,123 @@ function newCycleState(cycleNumber: number): CoordinatorState {
     slashEvents: [],
     lastSynthesisReport: null,
     expectedAgentCount: AGENT_URLS.length,
+    currentQuestion: carryQuestion,
+    consensus: null,
+    synthesisFired: false,
+    consensusReadyAt: null,
+    synthesisInFlight: false,
   };
 }
 
 let coordinator: CoordinatorState = newCycleState(1);
+
+// ── Polymarket question selection ──────────────────────────────────────────
+
+let questionPickInFlight = false;
+let manualQuestionOverride: PolymarketQuestion | null = null;
+const usedQuestionIds = new Set<string>();   // session-wide history of questions we've already shown
+
+async function pickQuestionForCycle(): Promise<PolymarketQuestion | null> {
+  if (manualQuestionOverride) {
+    const q = manualQuestionOverride;
+    manualQuestionOverride = null;
+    usedQuestionIds.add(q.id);
+    console.log(`[COORDINATOR] Using manually-set question: ${q.question.slice(0, 80)}`);
+    return q;
+  }
+  try {
+    const candidates = await fetchInterestingQuestions(20);
+    if (candidates.length === 0) return null;
+
+    // Filter out questions we've already used this session
+    const fresh = candidates.filter(c => !usedQuestionIds.has(c.id));
+
+    let pool = fresh.length > 0 ? fresh : candidates; // recycle if we've exhausted fresh ones
+
+    // Sort by uncertainty (closest to 0.50 first) so we always have interesting answers
+    pool = [...pool].sort((a, b) => Math.abs(0.5 - a.yesPrice) - Math.abs(0.5 - b.yesPrice));
+
+    // From the top-half (most uncertain), pick one at random for variety
+    const topHalf = pool.slice(0, Math.max(3, Math.ceil(pool.length / 2)));
+    const picked = topHalf[Math.floor(Math.random() * topHalf.length)];
+
+    if (fresh.length === 0) {
+      console.log(`[COORDINATOR] All ${candidates.length} fresh candidates used — recycling`);
+      usedQuestionIds.clear();
+    }
+    usedQuestionIds.add(picked.id);
+    return picked;
+  } catch (err) {
+    console.warn(`[COORDINATOR] failed to fetch Polymarket questions: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
+}
+
+async function ensureCycleHasQuestion(): Promise<void> {
+  if (coordinator.currentQuestion || questionPickInFlight) return;
+  questionPickInFlight = true;
+  try {
+    const q = await pickQuestionForCycle();
+    if (q) {
+      coordinator.currentQuestion = q;
+      console.log(`[COORDINATOR] Cycle ${coordinator.cycleNumber} question: "${q.question}" (YES=${(q.yesPrice*100).toFixed(0)}%, vol24h=$${Math.round(q.volume24hr).toLocaleString()})`);
+    }
+  } finally {
+    questionPickInFlight = false;
+  }
+}
+
+async function runSynthesis(): Promise<void> {
+  if (coordinator.synthesisFired) return;
+  if (!coordinator.currentQuestion) {
+    console.warn(`[COORDINATOR] Cannot synthesize — no active question`);
+    return;
+  }
+  const predictions: AgentPrediction[] = [];
+  const proofs: Record<string, string> = {};
+  for (const c of coordinator.commitRegistry.values()) {
+    if (c.prediction) {
+      predictions.push({ ...c.prediction, commitmentHash: c.kzgHash });
+      proofs[c.agentId] = c.kzgHash;
+    }
+  }
+  if (predictions.length === 0) {
+    console.warn(`[COORDINATOR] Cannot synthesize — no predictions in commit registry`);
+    coordinator.synthesisFired = true;
+    coordinator.consensusReadyAt = Date.now(); // unblock advance
+    return;
+  }
+
+  coordinator.synthesisFired = true;
+  coordinator.synthesisInFlight = true;
+  console.log(`\n${"█".repeat(60)}`);
+  console.log(`█  [COORDINATOR] SYNTHESIS — cycle ${coordinator.cycleNumber}`);
+  console.log(`█  Question: ${coordinator.currentQuestion.question.slice(0, 70)}`);
+  console.log(`█  Predictions: ${predictions.length} (${predictions.map(p => `${p.agentName}=${p.answer}`).join(", ")})`);
+  console.log(`${"█".repeat(60)}\n`);
+
+  try {
+    const { consensus } = await generateOracleConsensus(
+      predictions,
+      coordinator.currentQuestion,
+      coordinator.cycleId,
+      proofs
+    );
+    coordinator.consensus = consensus;
+    coordinator.lastSynthesisReport = consensus;
+    coordinator.consensusReadyAt = Date.now();
+    appendCycleHistory(consensus);
+    console.log(`\n${"█".repeat(60)}`);
+    console.log(`█  ORACLE CONSENSUS: ${consensus.answer} @ ${(consensus.confidence*100).toFixed(0)}% (${consensus.agreementLevel})`);
+    console.log(`█  ${consensus.narrative.slice(0, 200)}`);
+    console.log(`${"█".repeat(60)}\n`);
+  } catch (err) {
+    console.error(`[COORDINATOR] synthesis error: ${err instanceof Error ? err.message : String(err)}`);
+    coordinator.consensusReadyAt = Date.now(); // unblock advance even on error
+  } finally {
+    coordinator.synthesisInFlight = false;
+  }
+}
 
 function advanceCycle(): void {
   const now = Date.now();
@@ -86,27 +269,26 @@ function advanceCycle(): void {
 
   switch (coordinator.phase) {
     case "explore":
+      // Make sure a Polymarket question is loaded for this cycle
+      if (!coordinator.currentQuestion) {
+        ensureCycleHasQuestion().catch(() => {});
+      }
+      // Full window — agents need uninterrupted thinking time
       if (elapsed >= EXPLORE_MS) {
         coordinator.phase = "commit";
         coordinator.phaseStartedAt = now;
-        console.log(`[COORDINATOR] Cycle ${coordinator.cycleNumber} → COMMIT (window: ${COMMIT_MS}ms)`);
+        console.log(`[COORDINATOR] Cycle ${coordinator.cycleNumber} → COMMIT (max ${COMMIT_MS_MAX}ms, advances early on full registry)`);
       }
       break;
 
     case "commit":
-      if (elapsed >= COMMIT_MS) {
-        // Detect any agents that missed the commit window
+      // Advance early once all expected agents have committed; otherwise wait up to COMMIT_MS_MAX
+      if (coordinator.commitRegistry.size >= coordinator.expectedAgentCount || elapsed >= COMMIT_MS_MAX) {
         coordinator.commitWindowCloseBlock = Math.floor(now / 12_000);
-        for (const url of AGENT_URLS) {
-          // We check based on commit registry — agents not registered are marked missed
-          const registered = [...coordinator.commitRegistry.values()].some(
-            c => !c.windowMissed
-          );
-          void registered; // slash detection is done per-agent on POST /commit
-        }
         coordinator.phase = "reveal";
         coordinator.phaseStartedAt = now;
-        console.log(`[COORDINATOR] Cycle ${coordinator.cycleNumber} → REVEAL (${coordinator.commitRegistry.size} commits received)`);
+        const cause = coordinator.commitRegistry.size >= coordinator.expectedAgentCount ? "all committed" : "timeout";
+        console.log(`[COORDINATOR] Cycle ${coordinator.cycleNumber} → REVEAL (${coordinator.commitRegistry.size}/${coordinator.expectedAgentCount} commits, ${cause})`);
       }
       break;
 
@@ -115,21 +297,36 @@ function advanceCycle(): void {
         coordinator.phase = "synthesis";
         coordinator.phaseStartedAt = now;
         console.log(`[COORDINATOR] Cycle ${coordinator.cycleNumber} → SYNTHESIS`);
+        // Fire synthesis exactly once when entering this phase
+        runSynthesis().catch((err) => console.error("[COORDINATOR] synthesis crash:", err));
       }
       break;
 
-    case "synthesis":
-      if (elapsed >= SYNTHESIS_MS) {
+    case "synthesis": {
+      // Two gates:
+      //  1) Hard timeout — synthesis must complete in SYNTHESIS_MS_MAX or we move on
+      //  2) Display delay — once consensus is ready, hold for CONSENSUS_DISPLAY_MS so the audience can read it
+      const consensusReady = coordinator.consensusReadyAt !== null;
+      const displayElapsed = consensusReady ? (now - (coordinator.consensusReadyAt as number)) : 0;
+      const hardTimeout = elapsed >= SYNTHESIS_MS_MAX;
+      const displayDone = consensusReady && displayElapsed >= CONSENSUS_DISPLAY_MS;
+
+      if (hardTimeout || displayDone) {
         const next = coordinator.cycleNumber + 1;
-        console.log(`[COORDINATOR] Cycle ${coordinator.cycleNumber} complete → starting Cycle ${next} (EXPLORE)`);
+        const reason = hardTimeout && !consensusReady ? "synthesis timeout" : "display window done";
+        console.log(`[COORDINATOR] Cycle ${coordinator.cycleNumber} complete (${reason}) → starting Cycle ${next} (EXPLORE)`);
         coordinator = newCycleState(next);
+        ensureCycleHasQuestion().catch(() => {});
       }
       break;
+    }
   }
 }
 
 // Advance cycle phase every second
 setInterval(advanceCycle, 1000);
+// Pre-load the first question on boot so the very first cycle isn't empty
+ensureCycleHasQuestion().catch(() => {});
 
 const app = express();
 app.use(cors());
@@ -166,10 +363,10 @@ app.get("/api/coordinator", (_req, res) => {
   const elapsed = now - coordinator.phaseStartedAt;
   let windowRemainingMs = 0;
   switch (coordinator.phase) {
-    case "explore":   windowRemainingMs = Math.max(0, EXPLORE_MS - elapsed);   break;
-    case "commit":    windowRemainingMs = Math.max(0, COMMIT_MS - elapsed);    break;
-    case "reveal":    windowRemainingMs = Math.max(0, REVEAL_MS - elapsed);    break;
-    case "synthesis": windowRemainingMs = Math.max(0, SYNTHESIS_MS - elapsed); break;
+    case "explore":   windowRemainingMs = Math.max(0, EXPLORE_MS - elapsed);       break;
+    case "commit":    windowRemainingMs = Math.max(0, COMMIT_MS_MAX - elapsed);    break;
+    case "reveal":    windowRemainingMs = Math.max(0, REVEAL_MS - elapsed);        break;
+    case "synthesis": windowRemainingMs = Math.max(0, SYNTHESIS_MS_MAX - elapsed); break;
   }
   res.json({
     cycleId:            coordinator.cycleId,
@@ -180,6 +377,7 @@ app.get("/api/coordinator", (_req, res) => {
     commitCount:        coordinator.commitRegistry.size,
     expectedAgentCount: coordinator.expectedAgentCount,
     slashEventCount:    coordinator.slashEvents.length,
+    currentQuestion:    coordinator.currentQuestion,
     commits: [...coordinator.commitRegistry.values()].map(c => ({
       agentId:              c.agentId,
       agentName:            c.agentName,
@@ -192,16 +390,112 @@ app.get("/api/coordinator", (_req, res) => {
   });
 });
 
+// GET /api/oracle — full oracle state for the current cycle
+app.get("/api/oracle", (_req, res) => {
+  const predictions: AgentPrediction[] = [];
+  for (const c of coordinator.commitRegistry.values()) {
+    if (c.prediction) predictions.push({ ...c.prediction, commitmentHash: c.kzgHash });
+  }
+  const now = Date.now();
+  const elapsed = now - coordinator.phaseStartedAt;
+  let phaseWindowMs = EXPLORE_MS;
+  switch (coordinator.phase) {
+    case "explore":   phaseWindowMs = EXPLORE_MS; break;
+    case "commit":    phaseWindowMs = COMMIT_MS_MAX; break;
+    case "reveal":    phaseWindowMs = REVEAL_MS; break;
+    case "synthesis": phaseWindowMs = SYNTHESIS_MS_MAX; break;
+  }
+  res.json({
+    cycleId:        coordinator.cycleId,
+    cycleNumber:    coordinator.cycleNumber,
+    phase:          coordinator.phase,
+    phaseElapsedMs: elapsed,
+    phaseWindowMs,
+    phaseRemainingMs: Math.max(0, phaseWindowMs - elapsed),
+    question:       coordinator.currentQuestion,
+    perAgentPredictions: predictions,
+    consensus:      coordinator.consensus,
+    consensusReadyAt: coordinator.consensusReadyAt,
+    synthesisInFlight: coordinator.synthesisInFlight,
+    expectedAgents: coordinator.expectedAgentCount,
+    receivedAgents: predictions.length,
+  });
+});
+
+// GET /api/history — past cycle consensus answers (newest first, max 30)
+app.get("/api/history", (_req, res) => {
+  const stats = {
+    total: cycleHistory.length,
+    disagreedWithMarket: 0,
+    unanimous: 0,
+    majority: 0,
+    split: 0,
+  };
+  for (const h of cycleHistory) {
+    if (h.consensus.agreementLevel === "unanimous") stats.unanimous++;
+    if (h.consensus.agreementLevel === "majority") stats.majority++;
+    if (h.consensus.agreementLevel === "split") stats.split++;
+    const ourYes = h.consensus.answer === "YES";
+    const marketYes = h.marketImpliedYes >= 0.5;
+    if (ourYes !== marketYes) stats.disagreedWithMarket++;
+  }
+  res.json({ stats, entries: cycleHistory });
+});
+
+// GET /api/cost — cumulative LLM spend (coordinator + all agents) across the demo session
+app.get("/api/cost", async (_req, res) => {
+  const agentCosts = await fetchAllAgents("/cost") as Array<{ totalCostUsd?: number; totalCalls?: number } | null>;
+  let agentTotal = 0;
+  let agentCalls = 0;
+  for (const c of agentCosts) {
+    if (c) {
+      agentTotal += c.totalCostUsd || 0;
+      agentCalls += c.totalCalls || 0;
+    }
+  }
+  const grandTotal = totalCostUsd + agentTotal;
+  const grandCalls = totalCalls + agentCalls;
+  res.json({
+    totalCostUsd: grandTotal,
+    totalCalls: grandCalls,
+    coordinator: { totalCostUsd, totalCalls },
+    agents: { totalCostUsd: agentTotal, totalCalls: agentCalls },
+    avgCostPerCall: grandCalls > 0 ? grandTotal / grandCalls : 0,
+  });
+});
+
+// POST /api/coordinator/question — manually override the question for next cycle
+app.post("/api/coordinator/question", async (req, res) => {
+  const { id, question } = req.body as { id?: string; question?: PolymarketQuestion };
+  if (question && question.id && question.question) {
+    manualQuestionOverride = question;
+    res.json({ ok: true, willUseAtNextCycle: true, question });
+    return;
+  }
+  if (id) {
+    const q = await fetchQuestionById(id);
+    if (!q) { res.status(404).json({ error: "question not found" }); return; }
+    manualQuestionOverride = q;
+    res.json({ ok: true, willUseAtNextCycle: true, question: q });
+    return;
+  }
+  res.status(400).json({ error: "provide either { id } or { question }" });
+});
+
 // POST /api/coordinator/commit — agents register their commitment during commit window
 app.post("/api/coordinator/commit", (req, res) => {
-  const body = req.body as Partial<CommitEntry> & { agentId?: string; agentName?: string; kzgHash?: string };
+  const body = req.body as Partial<CommitEntry> & {
+    agentId?: string;
+    agentName?: string;
+    kzgHash?: string;
+    prediction?: AgentPrediction | null;
+  };
   if (!body?.agentId || !body?.kzgHash) {
     res.status(400).json({ error: "agentId and kzgHash are required" });
     return;
   }
 
   if (coordinator.phase !== "commit") {
-    // Agent submitted outside commit window — slash event
     const slash: SlashEvent = {
       agentId:   body.agentId,
       agentName: body.agentName ?? body.agentId,
@@ -230,10 +524,12 @@ app.post("/api/coordinator/commit", (req, res) => {
     submittedAt:          Date.now(),
     committedViaEigenDA:  body.committedViaEigenDA ?? false,
     windowMissed:         false,
+    prediction:           body.prediction ?? null,
   };
 
   coordinator.commitRegistry.set(body.agentId, entry);
-  console.log(`[COORDINATOR] Commit registered: ${entry.agentName} → ${entry.kzgHash.slice(0, 20)}… (${coordinator.commitRegistry.size}/${coordinator.expectedAgentCount})`);
+  const predTag = entry.prediction ? ` [${entry.prediction.answer} ${(entry.prediction.confidence*100).toFixed(0)}%]` : "";
+  console.log(`[COORDINATOR] Commit registered: ${entry.agentName}${predTag} → ${entry.kzgHash.slice(0, 20)}… (${coordinator.commitRegistry.size}/${coordinator.expectedAgentCount})`);
 
   res.json({
     ok:                true,
@@ -335,45 +631,6 @@ app.get("/api/agents", async (_req, res) => {
   res.json(reshaped);
 });
 
-app.get("/api/thoughts", async (_req, res) => {
-  const all = await fetchAllAgents("/thoughts");
-  const merged = (all.flat() as Array<{ timestamp: number }>)
-    .sort((a, b) => b.timestamp - a.timestamp)
-    .slice(0, 50);
-  res.json(merged);
-});
-
-app.get("/api/pheromones", async (_req, res) => {
-  const all = await fetchAllAgents("/pheromones");
-  const seen = new Set<string>();
-  const merged: unknown[] = [];
-  for (const p of all.flat() as Array<{ id: string }>) {
-    if (!seen.has(p.id)) { seen.add(p.id); merged.push(p); }
-  }
-  merged.sort((a: unknown, b: unknown) => ((b as { timestamp: number }).timestamp || 0) - ((a as { timestamp: number }).timestamp || 0));
-  res.json(merged.slice(0, 100));
-});
-
-app.get("/api/attestations", async (_req, res) => {
-  const [attestations, commits] = await Promise.all([
-    fetchAllAgents("/attestation"),
-    fetchAllAgents("/commit"),
-  ]);
-  const enriched = (attestations as Array<Record<string, unknown>>).map(attest => {
-    if (!attest) return attest;
-    const agentId = (attest as { agent?: { id?: string } }).agent?.id;
-    const commitData = (commits as Array<Record<string, unknown> | null>)
-      .find(c => c && (c as { agentId?: string }).agentId === agentId) ?? null;
-    return { ...attest, commitReveal: commitData ?? null };
-  });
-  res.json(enriched);
-});
-
-app.get("/api/commitments", async (_req, res) => {
-  const commits = await fetchAllAgents("/commit");
-  res.json(commits.filter(Boolean));
-});
-
 app.get("/api/identities", async (_req, res) => {
   const ids = await fetchAllAgents("/identity");
   res.json(ids);
@@ -440,163 +697,6 @@ app.get("/api/state", async (_req, res) => {
   });
 });
 
-// Collective memories — collapse reports from the same transition cycle (30s window) into one
-app.get("/api/collective", async (_req, res) => {
-  const all = await fetchAllAgents("/collective");
-  const seen = new Set<string>();
-  const memories: Array<{ id: string; createdAt: number }> = [];
-  for (const m of all.flat() as Array<{ id: string; createdAt: number }>) {
-    if (m?.id && !seen.has(m.id)) { seen.add(m.id); memories.push(m); }
-  }
-  memories.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-
-  // Group by 30-second windows — agents all fire within a few seconds of each other per transition
-  const WINDOW_MS = 30_000;
-  const windows = new Map<number, { id: string; createdAt: number }>();
-  for (const m of memories) {
-    const key = Math.floor((m.createdAt || 0) / WINDOW_MS);
-    // Keep the one with most content (most findings) or just the first seen
-    if (!windows.has(key)) windows.set(key, m);
-  }
-  const collapsed = [...windows.values()].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-  res.json(collapsed);
-});
-
-// Repos/datasets studied
-app.get("/api/repos", async (_req, res) => {
-  const states = await fetchAllAgents("/state") as Array<Record<string, unknown>>;
-  const seen = new Set<string>();
-  const datasets: Array<{ topic: string; timeRange: string; studiedBy: string[] }> = [];
-  for (const agent of states.filter(Boolean)) {
-    for (const entry of (agent.reposStudied as string[]) || []) {
-      const [topic, ...rest] = entry.split(":");
-      const label = topic.replace(/_/g, " ");
-      if (!seen.has(entry)) {
-        seen.add(entry);
-        datasets.push({ topic: label, timeRange: rest.join(":") || "recent", studiedBy: [] });
-      }
-      const ds = datasets.find(d => d.topic === label);
-      if (ds && !(ds.studiedBy.includes(agent.name as string))) ds.studiedBy.push(agent.name as string);
-    }
-  }
-  res.json(datasets);
-});
-
-// Report — aggregates thoughts, datasets, and collective memories for the Report tab
-app.get("/api/report", async (_req, res) => {
-  const [states, allThoughts, allCollective, repos] = await Promise.all([
-    fetchAllAgents("/state") as Promise<Array<Record<string, unknown>>>,
-    fetchAllAgents("/thoughts"),
-    fetchAllAgents("/collective"),
-    fetchAgent(AGENT_URLS[0], "/state").then(() => null).catch(() => null), // warm-up, unused
-  ]);
-
-  const validStates = (states as Array<Record<string, unknown>>).filter(Boolean);
-
-  // Top insights: interleave best thoughts from EACH agent so report is truly collective
-  type Thought = {
-    id: string; agentId: string; agentName?: string; conclusion?: string;
-    reasoning?: string; confidence?: number; trigger?: string; suggestedActions?: string[];
-  };
-  const allFlat = (allThoughts.flat() as Thought[]).filter(t => t.conclusion);
-
-  // Group by agent, sort each group by confidence
-  const byAgent = new Map<string, Thought[]>();
-  for (const t of allFlat) {
-    const key = t.agentName || t.agentId || "unknown";
-    if (!byAgent.has(key)) byAgent.set(key, []);
-    byAgent.get(key)!.push(t);
-  }
-  for (const [, arr] of byAgent) arr.sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
-
-  // Round-robin interleave: take up to 4 from each agent
-  const topInsights: object[] = [];
-  const agentQueues = [...byAgent.values()];
-  const perAgent = 4;
-  for (let round = 0; round < perAgent; round++) {
-    for (const queue of agentQueues) {
-      if (queue[round]) {
-        const t = queue[round];
-        topInsights.push({
-          agentName:        t.agentName || t.agentId?.slice(0, 8),
-          trigger:          t.trigger || "analysis",
-          confidence:       t.confidence || 0,
-          conclusion:       t.conclusion,
-          reasoning:        t.reasoning,
-          suggestedActions: t.suggestedActions || [],
-        });
-      }
-    }
-  }
-
-  // Collective memories (deduplicated)
-  const seenMem = new Set<string>();
-  const collectiveMemories: unknown[] = [];
-  for (const m of allCollective.flat() as Array<{ id: string; createdAt: number }>) {
-    if (m?.id && !seenMem.has(m.id)) { seenMem.add(m.id); collectiveMemories.push(m); }
-  }
-  collectiveMemories.sort((a, b) =>
-    ((b as { createdAt: number }).createdAt || 0) - ((a as { createdAt: number }).createdAt || 0)
-  );
-
-  // Datasets studied
-  const seenDs = new Set<string>();
-  const reposStudied: Array<{ topic: string; timeRange: string; studiedBy: string[] }> = [];
-  for (const agent of validStates) {
-    for (const entry of (agent.reposStudied as string[]) || []) {
-      const [topic, ...rest] = entry.split(":");
-      const label = topic.replace(/_/g, " ");
-      if (!seenDs.has(entry)) {
-        seenDs.add(entry);
-        reposStudied.push({ topic: label, timeRange: rest.join(":") || "recent", studiedBy: [] });
-      }
-      const ds = reposStudied.find(d => d.topic === label);
-      if (ds && !(ds.studiedBy.includes(agent.name as string))) ds.studiedBy.push(agent.name as string);
-    }
-  }
-
-  // Per-agent summaries
-  const agentSummaries = validStates.map(agent => {
-    const agentThoughts = allFlat.filter((t: Thought) => t.agentId === agent.id || t.agentName === agent.name);
-    return {
-      name:            agent.name,
-      specialization:  agent.specialization,
-      thoughtCount:    agent.thoughtCount || agentThoughts.length,
-      topConclusions:  agentThoughts.slice(0, 3),
-    };
-  });
-
-  res.json({ topInsights, collectiveMemories, reposStudied, agentSummaries });
-});
-
-app.get("/api/prs", (_req, res) => res.json([]));
-app.get("/api/decisions", async (_req, res) => res.json([]));
-
-// Inject pheromone — fan out to all agents
-app.post("/api/inject", async (req, res) => {
-  const { topic, content } = req.body as { topic?: string; content?: string };
-  const text = content || `Human injected: ${topic}`;
-  await Promise.allSettled(
-    AGENT_URLS.map(url =>
-      fetch(`${url}/pheromone`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: `human-${Date.now()}`,
-          agentId: "human",
-          content: text,
-          domain: topic || "injected",
-          confidence: 0.85,
-          strength: 0.95,
-          connections: [],
-          timestamp: Date.now(),
-          attestation: "human",
-        }),
-      })
-    )
-  );
-  res.json({ ok: true });
-});
 
 const dashboardIndex = path.join(dashboardDir, "index.html");
 

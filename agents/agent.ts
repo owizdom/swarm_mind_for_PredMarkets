@@ -4,50 +4,42 @@ import {
   PheromoneChannel,
   AutonomousAgentState,
   AgentPersonality,
-  AgentThought,
-  AgentDecision,
-  ScienceDataset,
-  hash,
+  PolymarketQuestion,
+  AgentPrediction,
 } from "./types";
 import { generateKeypair, buildAttestation } from "./keystore";
-import { fetchDataset, getRandomTopic } from "./science";
-import { formThought, synthesizeKnowledge } from "./thinker";
-import { generateCandidateDecisions, selectDecision, shouldSwitch } from "./decider";
-import { executeDecision } from "./executor";
-import { saveThought, saveDecision, updateDecisionStatus } from "./persistence";
+import { formMarketPrediction } from "./thinker";
 
 /**
- * Swarm Science Agent
+ * Swarm Mind Prediction Agent
  *
- * Each agent autonomously fetches real NASA datasets, forms scientific
- * hypotheses, shares findings via pheromones, and collectively builds
- * an emergent picture of space and Earth science.
+ * Each agent independently analyzes a live Polymarket question, forms a
+ * directional opinion (YES/NO/UNCERTAIN) using Claude reasoning, and seals
+ * the prediction cryptographically before any peer can see it. The agents
+ * are Nakamoto (Technical), Szabo (Macro), and Finney (On-chain Evidence).
  */
 
-const SCIENCE_TOPICS = [
-  "near_earth_objects",
-  "solar_flares",
-  "earth_events",
-  "exoplanets",
-  "mars_weather",
-];
-
-const NAMES = ["Kepler", "Hubble", "Voyager"];
+const NAMES = ["Nakamoto", "Szabo", "Finney"];
 
 const PERSONALITY_PRESETS: Array<{ name: string; personality: AgentPersonality }> = [
+  // Nakamoto — Technical: quantitative, anchored to numbers
   {
-    name: "Observer",
-    personality: { curiosity: 0.9, diligence: 0.7, boldness: 0.3, sociability: 0.5 },
+    name: "Technical",
+    personality: { curiosity: 0.7, diligence: 0.9, boldness: 0.6, sociability: 0.4 },
   },
+  // Szabo — Macro: contextual, structural, sociable (broadcasts conclusions)
   {
-    name: "Synthesizer",
-    personality: { curiosity: 0.6, diligence: 0.5, boldness: 0.4, sociability: 0.95 },
+    name: "Macro",
+    personality: { curiosity: 0.6, diligence: 0.5, boldness: 0.5, sociability: 0.95 },
   },
+  // Finney — On-chain evidence aggregator: bold, diligent, somewhat sociable
   {
-    name: "Analyst",
-    personality: { curiosity: 0.5, diligence: 0.9, boldness: 0.7, sociability: 0.4 },
+    name: "OnChain",
+    personality: { curiosity: 0.8, diligence: 0.85, boldness: 0.7, sociability: 0.5 },
   },
 ];
+
+const NO_QUESTION_TARGET = "awaiting_question";
 
 function generatePersonality(index: number): { specialization: string; personality: AgentPersonality } {
   const preset = PERSONALITY_PRESETS[index % PERSONALITY_PRESETS.length];
@@ -65,15 +57,17 @@ function generatePersonality(index: number): { specialization: string; personali
 
 export class SwarmAgent {
   state: AutonomousAgentState;
-  private discoveredDatasets: ScienceDataset[] = [];
-  private engineeringEnabled: boolean = false;
+  private currentQuestion: PolymarketQuestion | null = null;
+  private currentPrediction: AgentPrediction | null = null;
+  private hasFormedPrediction = false;
+  private predictionInFlight = false;
   private keypair = generateKeypair();
 
   constructor(index: number) {
     const angle = (index / 8) * Math.PI * 2;
     const radius = 300 + Math.random() * 200;
     const { specialization, personality } = generatePersonality(index);
-    const tokenBudget = parseInt(process.env.TOKEN_BUDGET_PER_AGENT || "50000");
+    const tokenBudget = parseInt(process.env.TOKEN_BUDGET_PER_AGENT || "200000");
 
     this.state = {
       id: uuid(),
@@ -88,7 +82,7 @@ export class SwarmAgent {
       },
       knowledge: [],
       absorbed: new Set(),
-      explorationTarget: SCIENCE_TOPICS[index % SCIENCE_TOPICS.length],
+      explorationTarget: NO_QUESTION_TARGET,
       energy: 0.3 + Math.random() * 0.3,
       synchronized: false,
       syncedWith: [],
@@ -99,7 +93,7 @@ export class SwarmAgent {
       thoughts: [],
       decisions: [],
       currentDecision: null,
-      reposStudied: [],   // Used as datasetsAnalyzed
+      reposStudied: [],
       prsCreated: [],
       tokensUsed: 0,
       tokenBudget,
@@ -115,19 +109,36 @@ export class SwarmAgent {
   }
 
   enableEngineering(): void {
-    this.engineeringEnabled = true;
+    // Kept for compatibility — no-op in prediction mode.
   }
 
   getPrivateKey(): string {
     return this.keypair.privateKey;
   }
 
-  private shouldDoEngineering(): boolean {
-    if (!this.engineeringEnabled) return false;
-    if (this.state.tokensUsed >= this.state.tokenBudget) return false;
-    const step = this.state.stepCount;
-    const probability = Math.min(0.85, step / 40);
-    return Math.random() < probability;
+  /** Coordinator pushes the active Polymarket question for this cycle. */
+  setActiveQuestion(q: PolymarketQuestion): void {
+    if (this.currentQuestion?.id === q.id && this.hasFormedPrediction) return;
+    this.currentQuestion = q;
+    this.state.explorationTarget = q.id;
+    this.hasFormedPrediction = false;
+    this.currentPrediction = null;
+  }
+
+  /** Called by runner at cycle reset so the agent re-thinks next cycle. */
+  resetForNewCycle(): void {
+    this.hasFormedPrediction = false;
+    this.currentPrediction = null;
+    this.predictionInFlight = false;
+  }
+
+  /** Runner reads this when posting commit registration to coordinator. */
+  getCurrentPrediction(): AgentPrediction | null {
+    return this.currentPrediction;
+  }
+
+  getActiveQuestion(): PolymarketQuestion | null {
+    return this.currentQuestion;
   }
 
   private trackTokens(tokensUsed: number): void {
@@ -139,217 +150,80 @@ export class SwarmAgent {
     this.move(channel);
     const absorbed = this.absorbPheromones(channel);
 
-    let discovery: Pheromone | null = null;
-
-    if (this.shouldDoEngineering()) {
-      if (this.state.currentDecision?.status === "executing") {
-        discovery = await this.continueExecution(absorbed);
-      } else {
-        discovery = await this.scienceStep(channel, absorbed);
-      }
-    } else {
-      discovery = await this.exploreScience(absorbed);
-    }
+    const discovery = await this.exploreMarket(absorbed);
 
     this.checkSync(channel);
     return discovery;
   }
 
-  /** Deep science step: think → decide → execute → emit pheromone */
-  private async scienceStep(
-    channel: PheromoneChannel,
-    absorbed: Pheromone[]
-  ): Promise<Pheromone | null> {
-    this.state.currentAction = "thinking";
-
-    try {
-      let thought: AgentThought | null = null;
-
-      if (absorbed.length > 0 && this.state.personality.sociability > 0.4) {
-        const { thought: synthThought, tokensUsed } = await synthesizeKnowledge(this.state, absorbed);
-        thought = synthThought;
-        this.trackTokens(tokensUsed);
-      } else {
-        const datasetsAnalyzed = this.state.reposStudied.length;
-        const { thought: ft, tokensUsed } = await formThought(
-          this.state,
-          datasetsAnalyzed > 0 ? "dataset_review" : "exploration",
-          `I have analyzed ${datasetsAnalyzed} NASA datasets. Currently focused on ${this.state.explorationTarget.replace(/_/g, " ")}.`,
-          `Specialization: ${this.state.specialization}, energy: ${this.state.energy.toFixed(2)}`
-        );
-        thought = ft;
-        this.trackTokens(tokensUsed);
-      }
-
-      if (thought) {
-        this.state.thoughts.push(thought);
-        try { saveThought(thought); } catch { /* DB not ready */ }
-      }
-
-      // Rotate topic to ensure diverse dataset coverage
-      if (Math.random() < 0.3) {
-        const topics = SCIENCE_TOPICS;
-        this.state.explorationTarget = topics[Math.floor(Math.random() * topics.length)];
-      }
-
-      // Generate and select a decision
-      this.state.currentAction = "deciding";
-      const candidates = generateCandidateDecisions(
-        this.state,
-        channel,
-        this.discoveredDatasets,
-        this.state.thoughts.slice(-10)
-      );
-
-      const decision = selectDecision(candidates, 0.3);
-      if (!decision) {
-        this.state.currentAction = "idle";
-        return null;
-      }
-
-      this.state.currentDecision = decision;
-      decision.status = "executing";
-      try { saveDecision(decision); } catch { /* DB not ready */ }
-
-      const result = await executeDecision(this.state, decision, this.discoveredDatasets);
-      if (result.tokensUsed > 0) this.trackTokens(result.tokensUsed);
-
-      decision.status = result.success ? "completed" : "failed";
-      decision.result = result;
-      decision.completedAt = Date.now();
-      this.state.decisions.push(decision);
-      this.state.currentDecision = null;
-
-      try { updateDecisionStatus(decision.id, decision.status, result); } catch { /* DB not ready */ }
-
-      console.log(`  [${this.state.name}] ${decision.action.type}: ${result.summary.slice(0, 90)}`);
-
-      if (result.success && result.artifacts.length > 0) {
-        return this.createSciencePheromone(decision, result);
-      }
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      console.error(`  [${this.state.name}] Science step error: ${message.slice(0, 100)}`);
-      this.state.currentAction = "recovering";
-    }
-
-    return null;
-  }
-
-  private async continueExecution(absorbed: Pheromone[]): Promise<Pheromone | null> {
-    const decision = this.state.currentDecision;
-    if (!decision) return null;
-
-    if (shouldSwitch(this.state, decision.result)) {
-      decision.status = "completed";
-      decision.completedAt = Date.now();
-      this.state.decisions.push(decision);
-      this.state.currentDecision = null;
+  /**
+   * Form an independent prediction for the active Polymarket question.
+   * Called once per cycle (gated by hasFormedPrediction). The LLM call
+   * runs in the background; emits a pheromone with the resulting verdict.
+   */
+  private async exploreMarket(_absorbed: Pheromone[]): Promise<Pheromone | null> {
+    if (!this.currentQuestion) {
+      this.state.currentAction = "awaiting question";
       return null;
     }
 
-    const result = await executeDecision(this.state, decision, this.discoveredDatasets);
-    if (result.tokensUsed > 0) this.trackTokens(result.tokensUsed);
-    decision.result = result;
-
-    if (result.success || decision.status !== "executing") {
-      decision.status = result.success ? "completed" : "failed";
-      decision.completedAt = Date.now();
-      this.state.decisions.push(decision);
-      this.state.currentDecision = null;
-
-      if (result.success && result.artifacts.length > 0) {
-        return this.createSciencePheromone(decision, result);
-      }
+    if (this.predictionInFlight) {
+      this.state.currentAction = "reasoning";
+      return null;
     }
 
-    return null;
+    if (this.hasFormedPrediction) {
+      // Already predicted this cycle. Occasionally re-emit a pheromone for liveness.
+      if (this.currentPrediction && Math.random() < 0.25) {
+        return this.predictionPheromone(this.currentPrediction);
+      }
+      this.state.currentAction = "watching peers";
+      return null;
+    }
+
+    if (this.state.tokensUsed >= this.state.tokenBudget) {
+      this.state.currentAction = "budget exhausted";
+      return null;
+    }
+
+    this.state.currentAction = `analyzing "${this.currentQuestion.question.slice(0, 50)}…"`;
+    this.predictionInFlight = true;
+
+    try {
+      const { prediction, tokensUsed } = await formMarketPrediction(this.state, this.currentQuestion);
+      this.trackTokens(tokensUsed);
+      this.currentPrediction = prediction;
+      this.hasFormedPrediction = true;
+      this.state.discoveries++;
+      console.log(`  [${this.state.name}] prediction: ${prediction.answer} @ ${(prediction.confidence*100).toFixed(0)}% — ${prediction.reasoning.slice(0, 100)}`);
+      return this.predictionPheromone(prediction);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`  [${this.state.name}] prediction error: ${msg.slice(0, 200)}`);
+      this.state.currentAction = "recovering";
+      return null;
+    } finally {
+      this.predictionInFlight = false;
+    }
   }
 
-  private createSciencePheromone(
-    decision: AgentDecision,
-    result: { summary: string; artifacts: Array<{ type: string; content: string }> }
-  ): Pheromone {
-    const rawTopic = "topic" in decision.action
-      ? (decision.action as { topic?: string }).topic
-      : undefined;
-    const topic = rawTopic || this.state.explorationTarget;
-
+  private predictionPheromone(p: AgentPrediction): Pheromone {
     const ts = Date.now();
+    const content = `[${p.answer} ${(p.confidence*100).toFixed(0)}%] ${p.reasoning}`;
     const pheromone: Pheromone = {
       id: uuid(),
       agentId: this.state.id,
-      content: result.summary,
-      domain: topic.replace(/_/g, " "),
-      confidence: decision.priority,
-      strength: 0.65 + decision.priority * 0.3,
+      content,
+      domain: "polymarket prediction",
+      confidence: p.confidence,
+      strength: 0.7 + p.confidence * 0.25,
       connections: [],
       timestamp: ts,
-      attestation: buildAttestation(result.summary, this.state.id, ts, this.keypair.privateKey, this.keypair.publicKey),
+      attestation: buildAttestation(content, this.state.id, ts, this.keypair.privateKey, this.keypair.publicKey),
       agentPubkey: this.keypair.publicKey,
     };
-
     this.state.knowledge.push(pheromone);
-    this.state.discoveries++;
     return pheromone;
-  }
-
-  /** Light exploration: fetch a NASA dataset and emit a pheromone summary */
-  private async exploreScience(absorbed: Pheromone[]): Promise<Pheromone | null> {
-    this.state.currentAction = `scanning ${this.state.explorationTarget.replace(/_/g, " ")}`;
-
-    const discoveryChance = this.state.synchronized ? 0.75 : 0.45;
-    if (Math.random() > discoveryChance) return null;
-
-    let topic = this.state.explorationTarget;
-    let connections: string[] = [];
-    let confidence = 0.45 + Math.random() * 0.3;
-
-    // Cross-pollination: pick topic from absorbed pheromone's domain
-    if (absorbed.length > 0 && Math.random() < 0.55) {
-      const source = absorbed[Math.floor(Math.random() * absorbed.length)];
-      connections = [source.id];
-      confidence = Math.min(1.0, source.confidence + 0.1);
-      topic = source.domain.replace(/\s+/g, "_");
-      if (source.strength > 0.6) this.state.explorationTarget = topic;
-    }
-
-    try {
-      const dataset = await fetchDataset(topic);
-      if (!dataset) return null;
-
-      // Cache dataset for later deep analysis
-      if (!this.discoveredDatasets.some((d) => d.topic === dataset.topic)) {
-        this.discoveredDatasets.push(dataset);
-      }
-
-      const highlight = dataset.highlights[Math.floor(Math.random() * dataset.highlights.length)];
-      const content = `[${dataset.subtopic}] ${highlight}`;
-
-      console.log(`    ${this.state.name} scanned ${dataset.topic}: ${highlight.slice(0, 60)}`);
-
-      const ts = Date.now();
-      const pheromone: Pheromone = {
-        id: uuid(),
-        agentId: this.state.id,
-        content,
-        domain: dataset.topic.replace(/_/g, " "),
-        confidence,
-        strength: 0.5 + confidence * 0.3,
-        connections,
-        timestamp: ts,
-        attestation: buildAttestation(content, this.state.id, ts, this.keypair.privateKey, this.keypair.publicKey),
-        agentPubkey: this.keypair.publicKey,
-      };
-
-      this.state.knowledge.push(pheromone);
-      this.state.discoveries++;
-      return pheromone;
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error(`  [${this.state.name}] Explore error: ${msg.slice(0, 80)}`);
-      return null;
-    }
   }
 
   private move(channel: PheromoneChannel): void {
